@@ -1,0 +1,943 @@
+"""下载管理器，按单个媒体决策 local/direct/skip 并回填元数据。"""
+
+import asyncio
+import hashlib
+import math
+import os
+import re
+import time
+import uuid
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+
+import aiohttp
+
+from ..logger import logger
+
+from ..constants import Config
+from ..message_adapter.readme_renderer import render_readme_images
+from ..metadata_state import refresh_media_state
+from ..storage import cleanup_directory, cleanup_file
+from ..storage.cache_marker import stamp_subdir
+from ..types import MediaMetadata
+from .budget import (
+    DownloadLimitExceeded,
+    is_configured_limit_source,
+    merge_limit_sources,
+)
+from .fileio import _wait_for_task_completion
+from .handler.audio import download_audio_to_cache
+from .handler.video_cover import extract_video_cover_to_cache
+from .router import download_media
+from .utils import check_cache_dir_available, strip_media_prefixes
+from .validator import get_video_size, validate_media_url
+
+
+class DownloadManager:
+    """下载调度器，为每个媒体独立决定本地、直链或跳过。"""
+
+    def __init__(
+        self,
+        max_video_size_mb: float = 0.0,
+        large_video_threshold_mb: float = Config.DEFAULT_LARGE_VIDEO_THRESHOLD_MB,
+        cache_dir: str = Config.DEFAULT_CACHE_DIR,
+        cache_dir_available: Optional[bool] = None,
+        max_concurrent_downloads: int = None,
+        video_cover_only: bool = False,
+        max_audio_size_mb: float = 30.0,
+        readme_paginate: bool = False,
+    ):
+        try:
+            normalized_max_size = float(max_video_size_mb)
+            self.max_video_size_mb = (
+                normalized_max_size
+                if math.isfinite(normalized_max_size) and normalized_max_size > 0
+                else 0.0
+            )
+        except (TypeError, ValueError):
+            self.max_video_size_mb = 0.0
+        try:
+            normalized_audio_size = float(max_audio_size_mb)
+            self.max_audio_size_mb = (
+                normalized_audio_size
+                if math.isfinite(normalized_audio_size) and normalized_audio_size >= 0
+                else 30.0
+            )
+        except (TypeError, ValueError):
+            self.max_audio_size_mb = 30.0
+        self.cache_dir = cache_dir
+        self.cache_dir_available = (
+            bool(cache_dir_available)
+            if cache_dir_available is not None
+            else check_cache_dir_available(cache_dir)
+        )
+        concurrency = (
+            max_concurrent_downloads
+            if max_concurrent_downloads is not None
+            else Config.DOWNLOAD_MANAGER_MAX_CONCURRENT
+        )
+        try:
+            concurrency = max(1, int(concurrency))
+        except (TypeError, ValueError):
+            concurrency = Config.DOWNLOAD_MANAGER_MAX_CONCURRENT
+        self._download_semaphore = asyncio.Semaphore(concurrency)
+        self._readme_semaphore = asyncio.Semaphore(1)
+        self.video_cover_only = bool(video_cover_only)
+        self.readme_paginate = bool(readme_paginate)
+
+        self._active_tasks: set[asyncio.Task] = set()
+        self._shutting_down = False
+
+    # ── 决策辅助 ────────────────────────────────────────
+
+    @staticmethod
+    def _copy_url_groups(field_name: str, value: Any) -> List[List[str]]:
+        """按严格契约复制媒体 URL 候选组。"""
+        if not isinstance(value, list):
+            raise TypeError(f"{field_name} 必须是 List[List[str]]")
+        groups: List[List[str]] = []
+        for group_index, item in enumerate(value):
+            if not isinstance(item, list):
+                raise TypeError(f"{field_name}[{group_index}] 必须是 URL 字符串列表")
+            if any(
+                not isinstance(url, str) or not url.strip() for url in item
+            ):
+                raise TypeError(
+                    f"{field_name}[{group_index}] 只能包含非空 URL 字符串"
+                )
+            groups.append(list(item))
+        return groups
+
+    @classmethod
+    def _normalize_video_cover_url_groups(
+        cls, metadata: MediaMetadata, video_count: int
+    ) -> List[List[str]]:
+        """按视频数量归一封面 URL 列表。"""
+        cover_groups = cls._copy_url_groups(
+            "video_cover_urls", metadata.get("video_cover_urls", [])
+        )
+
+        if not cover_groups:
+            return [[] for _ in range(video_count)]
+        if len(cover_groups) == 1 and video_count > 1:
+            return [list(cover_groups[0]) for _ in range(video_count)]
+        return [
+            list(cover_groups[idx]) if idx < len(cover_groups) else []
+            for idx in range(video_count)
+        ]
+
+    def _apply_video_cover_only_mode(
+        self,
+        metadata: MediaMetadata,
+        video_urls: List[List[str]],
+        image_urls: List[List[str]],
+        *,
+        enabled: Optional[bool] = None,
+    ) -> Tuple[List[List[str]], List[List[str]], Dict[int, List[str]]]:
+        """将视频媒体转换为封面图片，并返回截帧回退来源。"""
+        cover_only = self.video_cover_only if enabled is None else bool(enabled)
+        if not cover_only or not video_urls:
+            return video_urls, image_urls, {}
+
+        cover_groups = self._normalize_video_cover_url_groups(metadata, len(video_urls))
+        converted_images: List[List[str]] = []
+        cover_fallbacks: Dict[int, List[str]] = {}
+        for idx, url_list in enumerate(video_urls):
+            cover_urls = cover_groups[idx] if idx < len(cover_groups) else []
+            if cover_urls:
+                converted_images.append(cover_urls)
+                continue
+            converted_images.append([f"video-cover://{idx}"])
+            cover_fallbacks[len(converted_images) - 1] = list(url_list)
+
+        # 封面排在正文图片之前，正文配图位置需同步后移。
+        content_blocks = metadata.get("content_blocks")
+        if isinstance(content_blocks, list):
+            metadata["content_blocks"] = [
+                {**block, "index": block["index"] + len(converted_images)}
+                if block.get("type") == "image" else block
+                for block in content_blocks
+            ]
+        converted_images.extend(image_urls)
+        metadata.pop("video_cover_urls", None)
+        metadata.pop("video_force_download", None)
+        return [], converted_images, cover_fallbacks
+
+    @staticmethod
+    def _is_dash_url(url: str) -> bool:
+        return bool(url and url.startswith("dash:"))
+
+    @staticmethod
+    def _is_m3u8_url(url: str) -> bool:
+        if not url:
+            return False
+        stripped = strip_media_prefixes(url)
+        return url.startswith("m3u8:") or ".m3u8" in stripped.lower()
+
+    def _video_requires_local(self, url_list: List[str], force_download: bool) -> bool:
+        if force_download:
+            return True
+        for url in url_list:
+            if self._is_dash_url(url) or self._is_m3u8_url(url):
+                return True
+        return False
+
+    @staticmethod
+    def _proxy_for(
+        metadata: MediaMetadata, kind: str, proxy_addr: str = None
+    ) -> Optional[str]:
+        proxy_url = metadata.get("proxy_url") or proxy_addr
+        if not proxy_url:
+            return None
+        if kind == "video" and metadata.get("use_video_proxy", False):
+            return proxy_url
+        if kind == "image" and metadata.get("use_image_proxy", False):
+            return proxy_url
+        return None
+
+    @staticmethod
+    def _extract_status_code_from_error(error: Any) -> Optional[int]:
+        """从下载错误文本中提取 HTTP 状态码。"""
+        if not error:
+            return None
+        match = re.search(r"\b([1-5]\d{2})\b", str(error))
+        if not match:
+            return None
+        try:
+            return int(match.group(1))
+        except (TypeError, ValueError):
+            return None
+
+    async def _precheck_video(
+        self,
+        session: aiohttp.ClientSession,
+        url_list: List[str],
+        metadata: MediaMetadata,
+        proxy_addr: str = None,
+        require_accessible_for_direct: bool = False,
+    ) -> Tuple[Optional[float], Optional[int], Optional[str], bool, bool]:
+        """预检普通视频大小与可访问性。
+
+        Returns:
+            (size_mb, status_code, skip_reason, access_denied, size_limit_exceeded)
+        """
+        if not url_list:
+            return None, None, "未找到视频URL", False, False
+
+        headers = metadata.get("video_headers", {})
+        proxy = self._proxy_for(metadata, "video", proxy_addr)
+
+        last_status_code = None
+        denied_seen = False
+        size_limit_reason = None
+        size_limit_value = None
+        invalid_reason = "直链不可访问或不是有效视频"
+
+        for candidate_index, candidate in enumerate(list(url_list)):
+            url = strip_media_prefixes(candidate)
+            if not url:
+                continue
+
+            size_mb, status_code = await get_video_size(
+                session, url, headers=headers, proxy=proxy
+            )
+            if status_code is not None:
+                last_status_code = status_code
+            if status_code == 403:
+                denied_seen = True
+                continue
+            if (
+                size_mb is not None
+                and self.max_video_size_mb > 0
+                and size_mb > self.max_video_size_mb
+            ):
+                size_limit_value = size_mb
+                size_limit_reason = (
+                    f"视频大小超过限制（{size_mb:.1f}MB > "
+                    f"{self.max_video_size_mb:.1f}MB）"
+                )
+                continue
+
+            if require_accessible_for_direct and size_mb is None:
+                is_valid, validate_status = await validate_media_url(
+                    session, url, headers=headers, proxy=proxy, is_video=True
+                )
+                if validate_status is not None:
+                    last_status_code = validate_status
+                if validate_status == 403:
+                    denied_seen = True
+                    continue
+                if not is_valid:
+                    continue
+                status_code = validate_status
+
+            if candidate_index != 0:
+                url_list.insert(0, url_list.pop(candidate_index))
+            return size_mb, status_code, None, False, False
+
+        if denied_seen:
+            return None, last_status_code, "媒体访问被拒绝(403 Forbidden)", True, False
+        if size_limit_reason:
+            return (
+                size_limit_value,
+                last_status_code,
+                size_limit_reason,
+                False,
+                True,
+            )
+        return None, last_status_code, invalid_reason, False, False
+
+    # ── 下载执行 ────────────────────────────────────────
+
+    async def _download_local_items(
+        self,
+        session: aiohttp.ClientSession,
+        media_items: List[Dict[str, Any]],
+        cache_dir: str,
+    ) -> List[Dict[str, Any]]:
+        """并发下载需要写入缓存的媒体项。"""
+        if not media_items or not cache_dir or self._shutting_down:
+            return []
+
+        async def download_one(item: Dict[str, Any]) -> Dict[str, Any]:
+            async with self._download_semaphore:
+                url_list = item.get("url_list") or []
+                index = int(item.get("index", 0))
+                kind = item.get("kind", "video")
+                media_id = item.get("media_id") or "media"
+                headers = item.get("headers") or {}
+                proxy = item.get("proxy")
+                video_max_bytes = (
+                    int(self.max_video_size_mb * 1024 * 1024)
+                    if self.max_video_size_mb > 0
+                    else None
+                )
+                audio_max_bytes = (
+                    max(1, int(self.max_audio_size_mb * 1024 * 1024))
+                    if self.max_audio_size_mb > 0 else None
+                )
+
+                if not url_list:
+                    return {
+                        **item,
+                        "success": False,
+                        "file_path": None,
+                        "size_mb": None,
+                        "error": "未找到媒体URL",
+                    }
+
+                last_error = "下载失败"
+                last_status_code = None
+                last_size_mb = None
+                limit_sources = set()
+                if kind == "video_cover":
+                    try:
+                        result = await extract_video_cover_to_cache(
+                            session=session,
+                            video_urls=url_list,
+                            cache_dir=cache_dir,
+                            media_id=media_id,
+                            index=index,
+                            headers=headers,
+                            proxy=proxy,
+                            max_bytes=video_max_bytes,
+                        )
+                        return {
+                            **item,
+                            "url": url_list[0],
+                            "file_path": (result.get("file_path") if result else None),
+                            "size_mb": result.get("size_mb") if result else None,
+                            "status_code": (
+                                result.get("status_code") if result else None
+                            ),
+                            "success": bool(result and result.get("file_path")),
+                            "error": (
+                                result.get("error") if result else "截取视频封面失败"
+                            ),
+                        }
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        logger.warning(f"截取视频封面异常: {url_list[0]}, 错误: {e}")
+                        return {
+                            **item,
+                            "url": url_list[0],
+                            "file_path": None,
+                            "size_mb": None,
+                            "status_code": self._extract_status_code_from_error(e),
+                            "success": False,
+                            "error": str(e),
+                        }
+
+                for candidate in url_list:
+                    try:
+                        if kind == "audio":
+                            result = await download_audio_to_cache(
+                                session=session,
+                                audio_url=candidate,
+                                cache_dir=cache_dir,
+                                media_id=media_id,
+                                index=index,
+                                headers=headers,
+                                proxy=proxy,
+                                max_bytes=audio_max_bytes,
+                            )
+                        else:
+                            result = await download_media(
+                                session=session,
+                                media_url=candidate,
+                                media_type="image" if kind == "image" else None,
+                                cache_dir=cache_dir,
+                                media_id=media_id,
+                                index=index,
+                                headers=headers,
+                                proxy=proxy,
+                                max_bytes=(video_max_bytes if kind != "image" else None),
+                                image_tls_ciphers=item.get("image_tls_ciphers", ""),
+                                decryption_key=(
+                                    item.get("decryption_keys") or {}
+                                ).get(candidate),
+                            )
+                        if result and result.get("file_path"):
+                            return {
+                                **item,
+                                "url": candidate,
+                                "file_path": result.get("file_path"),
+                                "size_mb": result.get("size_mb"),
+                                "status_code": result.get("status_code"),
+                                "success": True,
+                                "error": result.get("error"),
+                                "converted_to_png": result.get("converted_to_png"),
+                            }
+                        if result and result.get("error"):
+                            last_error = str(result.get("error"))
+                            result_size_mb = result.get("size_mb")
+                            if isinstance(result_size_mb, (int, float)):
+                                last_size_mb = max(
+                                    float(result_size_mb),
+                                    last_size_mb or 0.0,
+                                )
+                            limit_source = result.get("limit_source")
+                            if limit_source in {"configured", "safety", "both"}:
+                                limit_sources.add(limit_source)
+                            last_status_code = (
+                                result.get("status_code")
+                                or self._extract_status_code_from_error(last_error)
+                                or last_status_code
+                            )
+                    except asyncio.CancelledError:
+                        raise
+                    except DownloadLimitExceeded as e:
+                        last_error = str(e)
+                        limit_sources.add(e.limit_source)
+                        if e.observed_bytes is not None:
+                            observed_size_mb = e.observed_bytes / (1024 * 1024)
+                            last_size_mb = max(
+                                observed_size_mb,
+                                last_size_mb or 0.0,
+                            )
+                        logger.warning(
+                            f"下载媒体已触发大小限制: {candidate}, 错误: {e}"
+                        )
+                    except Exception as e:
+                        last_error = str(e)
+                        last_status_code = (
+                            self._extract_status_code_from_error(last_error)
+                            or last_status_code
+                        )
+                        logger.warning(f"下载媒体失败: {candidate}, 错误: {e}")
+
+                limit_source = merge_limit_sources(*limit_sources)
+                return {
+                    **item,
+                    "url": url_list[0],
+                    "file_path": None,
+                    "size_mb": last_size_mb,
+                    "status_code": last_status_code,
+                    "success": False,
+                    "error": last_error,
+                    "limit_source": limit_source,
+                }
+
+        tasks = [asyncio.create_task(download_one(item)) for item in media_items]
+        self._active_tasks.update(tasks)
+        try:
+            raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in raw_results:
+                if isinstance(result, asyncio.CancelledError):
+                    raise result
+        except asyncio.CancelledError:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            # 结果尚未交给元数据；等待子任务释放文件句柄后回收整批完成文件。
+            for task in tasks:
+                await _wait_for_task_completion(task)
+            for task in tasks:
+                if not task.cancelled() and task.exception() is None:
+                    result = task.result()
+                    if isinstance(result, dict) and result.get("file_path"):
+                        cleanup_file(result["file_path"])
+            raise
+        finally:
+            for task in tasks:
+                self._active_tasks.discard(task)
+
+        results: List[Dict[str, Any]] = []
+        for idx, result in enumerate(raw_results):
+            item = media_items[idx] if idx < len(media_items) else {}
+            if isinstance(result, Exception):
+                results.append(
+                    {
+                        **item,
+                        "success": False,
+                        "file_path": None,
+                        "size_mb": None,
+                        "status_code": self._extract_status_code_from_error(
+                            str(result)
+                        ),
+                        "error": str(result),
+                    }
+                )
+            elif isinstance(result, dict):
+                results.append(result)
+        return results
+
+    async def _process_readme(
+        self,
+        metadata: MediaMetadata,
+        media_id: str,
+        on_sendable_media: Optional[Callable[[], Awaitable[None]]] = None,
+    ) -> None:
+        """将 README 截图插入图片区，保持后续音频的文件索引一致。"""
+        readme_url = metadata.get("readme_url")
+        if not readme_url or metadata.get("_enable_rich_media") is False:
+            return
+
+        paths: List[str] = []
+        reason = None
+        if not self.cache_dir_available:
+            reason = "媒体文件缓存目录不可用，无法生成 README 截图"
+        else:
+            async def render() -> List[str]:
+                async with self._readme_semaphore:
+                    if self._shutting_down:
+                        raise asyncio.CancelledError
+                    if on_sendable_media:
+                        await on_sendable_media()
+                    stamp_subdir(os.path.join(self.cache_dir, media_id))
+                    return await render_readme_images(
+                        readme_url,
+                        metadata.get("readme_selector", ""),
+                        os.path.join(self.cache_dir, media_id, "readme.png"),
+                        paginate=self.readme_paginate,
+                        proxy_url=metadata.get("proxy_url") or "",
+                    )
+
+            task = asyncio.create_task(render())
+            self._active_tasks.add(task)
+            try:
+                paths = await task
+                if not paths:
+                    raise RuntimeError("README 截图未生成有效图片")
+            except asyncio.CancelledError:
+                raise
+            except (ImportError, OSError, RuntimeError, ValueError, asyncio.TimeoutError) as exc:
+                reason = f"README 截图失败：{exc}"
+                logger.warning(reason)
+            finally:
+                self._active_tasks.discard(task)
+
+        # 网页链接仅保留为来源，成功只能使用本地图片，失败不得转为图片直链。
+        count = len(paths) if paths else 1
+        position = len(metadata["video_urls"]) + len(metadata["image_urls"])
+        metadata["image_urls"].extend([[readme_url] for _ in range(count)])
+        metadata["file_paths"][position:position] = paths or [None]
+        metadata["image_modes"].extend(["local" if paths else "skip"] * count)
+        metadata["image_skip_reasons"].extend([reason] * count)
+        metadata["image_status_codes"].extend([None] * count)
+        metadata["image_warnings"].extend([None] * count)
+
+    # ── 主入口 ──────────────────────────────────────────
+
+    async def process_metadata(
+        self,
+        session: aiohttp.ClientSession,
+        metadata: MediaMetadata,
+        proxy_addr: str = None,
+        on_sendable_media: Optional[Callable[[], Awaitable[None]]] = None,
+        *,
+        video_cover_only: Optional[bool] = None,
+    ) -> MediaMetadata:
+        """处理元数据，回填媒体模式、本地文件、大小和跳过原因。"""
+        if self._shutting_down or not metadata:
+            return metadata
+
+        url = metadata.get("url", "")
+        video_urls = self._copy_url_groups(
+            "video_urls", metadata.get("video_urls", [])
+        )
+        image_urls = self._copy_url_groups(
+            "image_urls", metadata.get("image_urls", [])
+        )
+        audio_urls = self._copy_url_groups(
+            "audio_urls", metadata.get("audio_urls", [])
+        )
+        video_urls, image_urls, cover_fallbacks = (
+            self._apply_video_cover_only_mode(
+                metadata,
+                video_urls,
+                image_urls,
+                enabled=video_cover_only,
+            )
+        )
+        metadata["video_urls"] = video_urls
+        metadata["image_urls"] = image_urls
+        metadata["audio_urls"] = audio_urls
+        metadata.setdefault("video_headers", {})
+        metadata.setdefault("image_headers", {})
+        metadata.setdefault("audio_headers", {})
+
+        video_count = len(video_urls)
+        image_count = len(image_urls)
+        audio_count = len(audio_urls)
+        file_paths: List[Optional[str]] = [None] * (
+            video_count + image_count + audio_count
+        )
+        audio_sizes: List[Optional[float]] = [None] * audio_count
+        audio_size_limit_flags: List[bool] = [False] * audio_count
+        audio_status_codes: List[Optional[int]] = [None] * audio_count
+        audio_modes: List[str] = ["skip"] * audio_count
+        audio_skip_reasons: List[Optional[str]] = [None] * audio_count
+        video_sizes: List[Optional[float]] = [None] * video_count
+        video_size_limit_flags: List[bool] = [False] * video_count
+        video_status_codes: List[Optional[int]] = [None] * video_count
+        image_status_codes: List[Optional[int]] = [None] * image_count
+        video_modes: List[str] = ["skip"] * video_count
+        image_modes: List[str] = ["skip"] * image_count
+        video_skip_reasons: List[Optional[str]] = [None] * video_count
+        image_skip_reasons: List[Optional[str]] = [None] * image_count
+        image_warnings: List[Optional[str]] = [None] * image_count
+        has_access_denied = False
+
+        force_download = bool(metadata.get("video_force_download", False))
+        decryption_keys = metadata.get("video_decryption_keys", {})
+        media_id = self._generate_media_id(url, metadata)
+        local_items: List[Dict[str, Any]] = []
+
+        logger.debug(
+            f"处理元数据: {url}, 视频={video_count}, 图片={image_count}, 音频={audio_count}, "
+            f"缓存目录可用={self.cache_dir_available}"
+        )
+
+        for idx, url_list in enumerate(video_urls):
+            encrypted = any(candidate in decryption_keys for candidate in url_list)
+            requires_local = self._video_requires_local(
+                url_list, force_download or encrypted
+            )
+            contains_stream = any(
+                self._is_dash_url(u) or self._is_m3u8_url(u) for u in url_list
+            )
+            direct_fallback_selected = False
+
+            if not url_list:
+                video_skip_reasons[idx] = "未找到视频URL"
+                continue
+
+            if requires_local and not self.cache_dir_available:
+                if force_download or encrypted:
+                    video_skip_reasons[idx] = (
+                        "媒体文件缓存目录不可用，无法处理必须下载到缓存的视频"
+                    )
+                    continue
+
+                # 混合候选无缓存时，跳过需本地封装的流媒体，只预检普通直链。
+                direct_candidates = [
+                    candidate
+                    for candidate in url_list
+                    if not (
+                        self._is_dash_url(candidate)
+                        or self._is_m3u8_url(candidate)
+                    )
+                ]
+                if not direct_candidates:
+                    video_skip_reasons[idx] = (
+                        "媒体文件缓存目录不可用，候选视频均需要本地处理"
+                    )
+                    continue
+
+                (
+                    size_mb,
+                    status_code,
+                    reason,
+                    denied,
+                    size_limit_exceeded,
+                ) = await self._precheck_video(
+                    session=session,
+                    url_list=direct_candidates,
+                    metadata=metadata,
+                    proxy_addr=proxy_addr,
+                    require_accessible_for_direct=True,
+                )
+                video_sizes[idx] = size_mb
+                video_status_codes[idx] = status_code
+                has_access_denied = has_access_denied or denied
+                if reason:
+                    video_size_limit_flags[idx] = size_limit_exceeded
+                    video_skip_reasons[idx] = reason
+                    continue
+
+                video_urls[idx] = direct_candidates
+                url_list = direct_candidates
+                direct_fallback_selected = True
+
+            mode = "local" if self.cache_dir_available else "direct"
+
+            if not contains_stream and not direct_fallback_selected:
+                (
+                    size_mb,
+                    status_code,
+                    reason,
+                    denied,
+                    size_limit_exceeded,
+                ) = await self._precheck_video(
+                    session=session,
+                    url_list=url_list,
+                    metadata=metadata,
+                    proxy_addr=proxy_addr,
+                    require_accessible_for_direct=(mode == "direct"),
+                )
+                video_sizes[idx] = size_mb
+                video_status_codes[idx] = status_code
+                has_access_denied = has_access_denied or denied
+                if reason:
+                    video_size_limit_flags[idx] = size_limit_exceeded
+                    video_skip_reasons[idx] = reason
+                    continue
+
+            video_modes[idx] = mode
+            if on_sendable_media:
+                await on_sendable_media()
+            if mode == "local":
+                local_items.append(
+                    {
+                        "kind": "video",
+                        "position": idx,
+                        "index": idx,
+                        "url_list": url_list,
+                        "media_id": media_id,
+                        "headers": metadata.get("video_headers", {}),
+                        "decryption_keys": decryption_keys,
+                        "proxy": self._proxy_for(metadata, "video", proxy_addr),
+                    }
+                )
+
+        for idx, url_list in enumerate(image_urls):
+            source_url_list = cover_fallbacks.get(idx)
+            if source_url_list is not None:
+                if any(candidate in decryption_keys for candidate in source_url_list):
+                    image_skip_reasons[idx] = "加密视频未提供封面，无法直接截取首帧"
+                    continue
+                if not source_url_list:
+                    image_skip_reasons[idx] = "未找到可截取封面的视频URL"
+                    continue
+                if not self.cache_dir_available:
+                    image_skip_reasons[idx] = "媒体文件缓存目录不可用，无法截取视频封面"
+                    continue
+                image_modes[idx] = "local"
+                if on_sendable_media:
+                    await on_sendable_media()
+                local_items.append(
+                    {
+                        "kind": "video_cover",
+                        "position": video_count + idx,
+                        "index": idx,
+                        "url_list": source_url_list,
+                        "media_id": media_id,
+                        "headers": metadata.get("video_headers", {}),
+                        "proxy": self._proxy_for(metadata, "video", proxy_addr),
+                    }
+                )
+                continue
+
+            if not url_list:
+                image_skip_reasons[idx] = "未找到图片URL"
+                continue
+            if not self.cache_dir_available:
+                image_skip_reasons[idx] = "媒体文件缓存目录不可用，图片无法直链发送"
+                continue
+            image_modes[idx] = "local"
+            if on_sendable_media:
+                await on_sendable_media()
+            local_items.append(
+                {
+                    "kind": "image",
+                    "position": video_count + idx,
+                    "index": idx,
+                    "url_list": url_list,
+                    "media_id": media_id,
+                    "headers": metadata.get("image_headers", {}),
+                    "image_tls_ciphers": metadata.get("image_tls_ciphers", ""),
+                    "proxy": self._proxy_for(metadata, "image", proxy_addr),
+                }
+            )
+
+        for idx, url_list in enumerate(audio_urls):
+            if not url_list:
+                audio_skip_reasons[idx] = "未找到音频URL"
+                continue
+            if metadata.get("_enable_rich_media") is False:
+                audio_skip_reasons[idx] = "已关闭媒体输出"
+                continue
+            if not self.cache_dir_available:
+                audio_skip_reasons[idx] = "媒体文件缓存目录不可用，音频无法发送"
+                continue
+            audio_modes[idx] = "local"
+            if on_sendable_media:
+                await on_sendable_media()
+            local_items.append(
+                {
+                    "kind": "audio",
+                    "position": video_count + image_count + idx,
+                    "index": idx,
+                    "url_list": url_list,
+                    "media_id": media_id,
+                    "headers": metadata.get("audio_headers", {}),
+                }
+            )
+
+        download_results = await self._download_local_items(
+            session=session, media_items=local_items, cache_dir=self.cache_dir
+        )
+
+        for result in download_results:
+            kind = result.get("kind")
+            position = int(result.get("position", 0))
+            status_code = result.get("status_code")
+            success = bool(result.get("success") and result.get("file_path"))
+            if not success:
+                reason = result.get("error") or "缓存下载失败"
+                if kind == "video":
+                    idx = position
+                    if status_code is not None:
+                        video_status_codes[idx] = status_code
+                    size_mb = result.get("size_mb")
+                    if isinstance(size_mb, (int, float)):
+                        video_sizes[idx] = float(size_mb)
+                    video_size_limit_flags[idx] = is_configured_limit_source(
+                        result.get("limit_source")
+                    )
+                    video_modes[idx] = "skip"
+                    video_skip_reasons[idx] = f"缓存下载失败: {reason}"
+                elif kind == "audio":
+                    idx = position - video_count - image_count
+                    if status_code is not None:
+                        audio_status_codes[idx] = status_code
+                    size_mb = result.get("size_mb")
+                    if isinstance(size_mb, (int, float)):
+                        audio_sizes[idx] = float(size_mb)
+                    audio_size_limit_flags[idx] = is_configured_limit_source(
+                        result.get("limit_source")
+                    )
+                    audio_modes[idx] = "skip"
+                    audio_skip_reasons[idx] = f"音频缓存下载失败: {reason}"
+                else:
+                    idx = position - video_count
+                    if status_code is not None:
+                        image_status_codes[idx] = status_code
+                    image_modes[idx] = "skip"
+                    if kind == "video_cover":
+                        image_skip_reasons[idx] = f"截取视频封面失败: {reason}"
+                    else:
+                        image_skip_reasons[idx] = f"缓存下载失败: {reason}"
+                continue
+
+            file_path = result.get("file_path")
+            size_mb = result.get("size_mb")
+            if kind == "video":
+                idx = position
+                if status_code is not None:
+                    video_status_codes[idx] = status_code
+                if size_mb is not None:
+                    video_sizes[idx] = size_mb
+                if (
+                    size_mb is not None
+                    and self.max_video_size_mb > 0
+                    and size_mb > self.max_video_size_mb
+                ):
+                    cleanup_file(file_path)
+                    file_paths[position] = None
+                    video_modes[idx] = "skip"
+                    video_skip_reasons[idx] = (
+                        f"下载后视频大小超过限制（{size_mb:.1f}MB > "
+                        f"{self.max_video_size_mb:.1f}MB）"
+                    )
+                    video_size_limit_flags[idx] = True
+                    continue
+            elif kind == "audio":
+                idx = position - video_count - image_count
+                if status_code is not None:
+                    audio_status_codes[idx] = status_code
+                if size_mb is not None:
+                    audio_sizes[idx] = size_mb
+            else:
+                idx = position - video_count
+                if status_code is not None:
+                    image_status_codes[idx] = status_code
+                if result.get("error"):
+                    image_warnings[idx] = str(result.get("error"))
+            file_paths[position] = file_path
+
+        metadata["file_paths"] = file_paths
+        metadata["video_sizes"] = video_sizes
+        metadata["video_size_limit_flags"] = video_size_limit_flags
+        metadata["video_status_codes"] = video_status_codes
+        metadata["image_status_codes"] = image_status_codes
+        metadata["video_modes"] = video_modes
+        metadata["image_modes"] = image_modes
+        metadata["video_skip_reasons"] = video_skip_reasons
+        metadata["image_skip_reasons"] = image_skip_reasons
+        metadata["image_warnings"] = image_warnings
+        metadata["audio_modes"] = audio_modes
+        metadata["audio_sizes"] = audio_sizes
+        metadata["audio_status_codes"] = audio_status_codes
+        metadata["audio_skip_reasons"] = audio_skip_reasons
+        metadata["audio_size_limit_flags"] = audio_size_limit_flags
+        await self._process_readme(metadata, media_id, on_sendable_media)
+        refresh_media_state(metadata)
+
+        has_valid_media = metadata["has_valid_media"]
+        if not has_valid_media and self.cache_dir:
+            cleanup_directory(os.path.join(self.cache_dir, media_id))
+
+        metadata["has_access_denied"] = bool(
+            has_access_denied
+            or any(code == 403 for code in video_status_codes)
+            or any(code == 403 for code in image_status_codes)
+            or any(code == 403 for code in audio_status_codes)
+        )
+        return metadata
+
+    def _generate_media_id(
+        self, url: str, metadata: Optional[MediaMetadata] = None
+    ) -> str:
+        platform = "unknown"
+        if metadata and metadata.get("platform"):
+            platform = str(metadata.get("platform"))
+        platform = re.sub(r"[^A-Za-z0-9_.-]+", "_", platform).strip("._-")[:40]
+        if not platform:
+            platform = "unknown"
+        url_hash = hashlib.md5((url or "").encode()).hexdigest()[:8]
+        timestamp = int(time.time())
+        nonce = uuid.uuid4().hex[:8]
+        return f"{platform}_{url_hash}_{timestamp}_{nonce}"
+
+    async def shutdown(self):
+        """取消所有活动下载任务。"""
+        self._shutting_down = True
+        tasks = list(self._active_tasks)
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._active_tasks.clear()

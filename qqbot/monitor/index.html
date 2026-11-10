@@ -1,0 +1,1408 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>梦璃 · QQ 监控</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --bg2: #0f1730;
+      --panel: rgba(19, 28, 50, 0.86);
+      --panel2: rgba(25, 36, 64, 0.72);
+      --line: rgba(92, 120, 170, 0.28);
+      --text: #e6edf7;
+      --muted: #8ea0c0;
+      --accent: #5eead4;
+      --accent2: #60a5fa;
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --danger: #f87171;
+      --violet: #a78bfa;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(900px 500px at 8% -10%, rgba(94, 234, 212, 0.10), transparent 60%),
+        radial-gradient(800px 500px at 100% 0%, rgba(96, 165, 250, 0.10), transparent 55%),
+        linear-gradient(160deg, var(--bg), var(--bg2));
+      color: var(--text);
+      font-family: var(--sans);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    button, input, select { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 20px 10px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .logo {
+      width: 42px; height: 42px; border-radius: 13px;
+      display: grid; place-items: center;
+      background: linear-gradient(140deg, rgba(94, 234, 212, 0.22), rgba(96, 165, 250, 0.22));
+      border: 1px solid rgba(94, 234, 212, 0.35);
+      color: var(--accent);
+      font-weight: 700; font-size: 20px;
+      box-shadow: 0 0 28px rgba(94, 234, 212, 0.12);
+    }
+    h1 { margin: 0; font-size: 18px; letter-spacing: 0.4px; }
+    .sub { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    .conn {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 12px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--panel2);
+      color: var(--muted); font-size: 12px; white-space: nowrap;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+    .dot.online { background: var(--ok); box-shadow: 0 0 12px rgba(52, 211, 153, 0.8); }
+    .dot.warn { background: var(--warn); box-shadow: 0 0 12px rgba(251, 191, 36, 0.7); }
+    .dot.offline { background: var(--danger); box-shadow: 0 0 12px rgba(248, 113, 113, 0.7); }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(120px, 1fr));
+      gap: 10px;
+      padding: 0 20px 12px;
+    }
+    .stat {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      padding: 10px 12px;
+      min-width: 0;
+      backdrop-filter: blur(10px);
+    }
+    .stat span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+    .stat strong { display: block; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .stat strong.accent { color: var(--accent); }
+    .stat strong.warn { color: var(--warn); }
+    .stat strong.danger { color: var(--danger); }
+    main {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 12px;
+      padding: 0 20px 14px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      backdrop-filter: blur(12px);
+      min-height: 0;
+    }
+    .groups { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+    .panel-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px 8px;
+    }
+    .panel-head h2 { margin: 0; font-size: 13px; color: var(--muted); font-weight: 600; letter-spacing: 0.6px; }
+    .hint { color: var(--muted); font-size: 11px; }
+    .group-list { flex: 1; overflow: auto; padding: 2px 8px 10px; }
+    .group-row {
+      display: flex; align-items: stretch; gap: 4px;
+      margin: 2px 0;
+      border-radius: 10px;
+    }
+    .group-row.active { background: rgba(94, 234, 212, 0.09); box-shadow: inset 0 0 0 1px rgba(94, 234, 212, 0.28); }
+    .group-main {
+      flex: 1; min-width: 0; text-align: left;
+      background: transparent; border: 0; border-radius: 10px;
+      padding: 8px 8px;
+    }
+    .group-main:hover { background: rgba(255, 255, 255, 0.04); }
+    .group-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .group-name { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .group-count { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+    .group-meta { margin-top: 3px; color: var(--muted); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .icon-btn {
+      flex: 0 0 26px; width: 26px; border: 1px solid transparent; background: transparent;
+      color: var(--muted); border-radius: 8px; font-size: 12px;
+    }
+    .icon-btn:hover { border-color: var(--line); background: var(--panel2); color: var(--text); }
+    .empty { color: var(--muted); font-size: 12px; padding: 14px; text-align: center; }
+    .stream { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+    .toolbar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 10px 12px; border-bottom: 1px solid var(--line);
+    }
+    .filters { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+    .filters button, .tab, .tool-btn {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+    .filters button:hover, .tab:hover, .tool-btn:hover { background: var(--panel2); color: var(--text); }
+    .filters button.active {
+      color: #06211f;
+      background: var(--accent);
+      border-color: rgba(94, 234, 212, 0.65);
+      font-weight: 600;
+    }
+    .toolbar input[type="search"], .toolbar input#search, .toolbar select {
+      background: var(--panel2);
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 7px 10px;
+      font-size: 12px;
+      outline: none;
+      min-width: 0;
+    }
+    .toolbar input#search { flex: 1 1 180px; min-width: 140px; }
+    .toolbar select { max-width: 230px; }
+    .toolbar input:focus, .toolbar select:focus { border-color: rgba(94, 234, 212, 0.55); box-shadow: 0 0 0 2px rgba(94, 234, 212, 0.10); }
+    .switch { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .switch input { accent-color: var(--accent); }
+    .tool-btn.danger { color: var(--danger); }
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+    .settings-btn { border: 1px solid var(--line); background: var(--panel2); }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(4, 8, 18, 0.72);
+      backdrop-filter: blur(6px);
+    }
+    .modal {
+      width: min(470px, 100%);
+      max-height: 90vh;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(22, 32, 56, 0.98), rgba(15, 23, 42, 0.98));
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+    }
+    .modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 18px 8px;
+    }
+    .modal-head h2 { margin: 0; font-size: 16px; }
+    .modal-body { display: grid; gap: 8px; padding: 8px 18px 4px; }
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+    }
+    .setting-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+    .setting-hint { margin: 0 0 6px; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+    .setting-warning { margin: 6px 0 0; color: var(--warn); font-size: 11.5px; line-height: 1.5; }
+    .setting-error { margin: 6px 0 0; color: var(--danger); font-size: 11.5px; }
+    .range { width: 100%; accent-color: var(--accent); }
+    .num {
+      width: 92px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px 8px;
+      background: var(--panel2);
+      color: var(--text);
+    }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px 18px; }
+    .save-btn {
+      border: 1px solid rgba(94, 234, 212, 0.6);
+      border-radius: 10px;
+      padding: 8px 14px;
+      background: var(--accent);
+      color: #06211f;
+      font-weight: 700;
+    }
+    .save-btn:disabled { opacity: 0.6; cursor: default; }
+    .tabs { display: flex; align-items: center; gap: 4px; padding: 6px 12px 0; }
+    .tab { border-radius: 8px 8px 0 0; }
+    .tab.active { color: var(--text); background: var(--panel2); border-color: var(--line); border-bottom-color: transparent; }
+    .event-list { flex: 1; overflow: auto; padding: 6px 10px 14px; }
+    .ev {
+      display: grid;
+      grid-template-columns: 64px minmax(0, 1fr);
+      gap: 10px;
+      padding: 8px 4px;
+      border-bottom: 1px solid rgba(92, 120, 170, 0.13);
+      font-size: 12.5px;
+    }
+    .ev:last-child { border-bottom: 0; }
+    .ev-time { font-family: var(--mono); color: var(--muted); font-size: 10.5px; padding-top: 2px; }
+    .ev-body { min-width: 0; }
+    .ev-line { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      border-radius: 999px; padding: 2px 7px;
+      font-size: 10.5px; font-weight: 600; white-space: nowrap;
+      border: 1px solid transparent;
+    }
+    .badge.group { color: #a7f3d0; background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.3); }
+    .badge.c2c { color: #bfdbfe; background: rgba(96, 165, 250, 0.12); border-color: rgba(96, 165, 250, 0.3); }
+    .badge.reply { color: #c4b5fd; background: rgba(167, 139, 250, 0.13); border-color: rgba(167, 139, 250, 0.3); }
+    .badge.media { color: #99f6e4; background: rgba(45, 212, 191, 0.12); border-color: rgba(45, 212, 191, 0.3); }
+    .badge.ok { color: #a7f3d0; background: rgba(52, 211, 153, 0.12); border-color: rgba(52, 211, 153, 0.32); }
+    .badge.warn { color: #fde68a; background: rgba(251, 191, 36, 0.12); border-color: rgba(251, 191, 36, 0.3); }
+    .badge.error { color: #fecaca; background: rgba(248, 113, 113, 0.13); border-color: rgba(248, 113, 113, 0.34); }
+    .badge.agent { color: #bae6fd; background: rgba(14, 165, 233, 0.12); border-color: rgba(14, 165, 233, 0.3); }
+    .badge.cmd { color: #e2e8f0; background: rgba(148, 163, 184, 0.12); border-color: rgba(148, 163, 184, 0.28); }
+    .chip {
+      display: inline-flex; align-items: center; border-radius: 999px;
+      padding: 1px 6px; font-size: 10px; color: var(--muted);
+      border: 1px solid var(--line);
+    }
+    .chip.sim { color: var(--warn); border-color: rgba(251, 191, 36, 0.3); }
+    .chip.mediaonly { color: var(--accent); border-color: rgba(94, 234, 212, 0.3); }
+    .ev-title { font-weight: 550; word-break: break-word; }
+    .ev-meta { color: var(--muted); font-size: 11px; }
+    .ev-detail {
+      margin-top: 4px;
+      color: #c8d5ea;
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .ev-detail .mono { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+    .reply-text { color: #d7e3f7; }
+    .reply-text.clamp {
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .file-line { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+    .raw {
+      flex: 1;
+      margin: 0;
+      padding: 10px 14px 16px;
+      overflow: auto;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      line-height: 1.55;
+      color: #c8d5ea;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .memory-panel { flex: 1; overflow: auto; padding: 10px 12px 14px; }
+    .memory-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .memory-toolbar input {
+      flex: 1 1 200px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 7px 10px;
+      background: var(--panel2);
+      color: var(--text);
+      font-size: 12px;
+      outline: none;
+    }
+    .memory-list { display: grid; gap: 6px; }
+    .memory-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel2);
+      cursor: pointer;
+    }
+    .memory-row:hover { border-color: rgba(94, 234, 212, 0.4); }
+    .memory-name { font-size: 13px; font-weight: 600; }
+    .memory-sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+    .memory-summary {
+      color: #c8d5ea;
+      font-size: 12px;
+      margin-top: 3px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 760px;
+    }
+    .memory-badges { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+    .memory-modal { width: min(640px, 100%); }
+    .memory-meta { color: var(--muted); font-size: 11px; line-height: 1.6; padding-bottom: 4px; }
+    .text-input, .text-area {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 7px 9px;
+      background: var(--panel2);
+      color: var(--text);
+      font-size: 12px;
+      outline: none;
+    }
+    .text-area { resize: vertical; min-height: 48px; }
+    .text-input:focus, .text-area:focus {
+      border-color: rgba(94, 234, 212, 0.55);
+      box-shadow: 0 0 0 2px rgba(94, 234, 212, 0.10);
+    }
+    .memory-section { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 4px; }
+    .memory-section-head { color: var(--muted); font-size: 11px; margin-bottom: 5px; }
+    .memory-note, .memory-message {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(92, 120, 170, 0.12);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .memory-note button {
+      flex: 0 0 auto;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--danger);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .memory-add-note { display: flex; gap: 6px; margin-top: 6px; }
+    .memory-add-note .text-input { flex: 1; }
+    .memory-messages { max-height: 180px; overflow: auto; }
+    .spacer { flex: 1; }
+    .hidden { display: none !important; }
+    .new-badge {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      background: var(--accent);
+      color: #06211f;
+      border: 0;
+      border-radius: 999px;
+      padding: 8px 16px;
+      font-weight: 700;
+      font-size: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      z-index: 20;
+    }
+    footer {
+      display: flex; justify-content: space-between; gap: 10px;
+      padding: 0 20px 10px;
+      color: var(--muted); font-size: 10.5px;
+    }
+    ::-webkit-scrollbar { width: 9px; height: 9px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(120, 145, 190, 0.28); border-radius: 999px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(120, 145, 190, 0.45); }
+    @media (max-width: 1100px) {
+      .stats { grid-template-columns: repeat(3, minmax(110px, 1fr)); }
+    }
+    @media (max-width: 820px) {
+      body { overflow: auto; height: auto; }
+      .top { flex-direction: column; align-items: flex-start; }
+      .stats { grid-template-columns: repeat(2, minmax(110px, 1fr)); padding: 0 12px 10px; }
+      main { grid-template-columns: 1fr; padding: 0 12px 16px; }
+      .groups { max-height: 220px; }
+      .stream { min-height: 60vh; }
+      .event-list { max-height: 60vh; }
+      .toolbar select { max-width: 100%; }
+      footer { padding: 0 12px 10px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <div class="logo">梦</div>
+      <div>
+        <h1>梦璃 · QQ 监控</h1>
+        <p class="sub" id="subtitle">正在连接监控服务…</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="tool-btn settings-btn" id="settingsBtn">设置</button>
+      <div class="conn"><span class="dot" id="connDot"></span><span id="connText">连接中</span></div>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="stat"><span>网关</span><strong id="statConn">—</strong></div>
+    <div class="stat"><span>机器人</span><strong id="statBot">—</strong></div>
+    <div class="stat"><span>群聊</span><strong id="statGroups">0</strong></div>
+    <div class="stat"><span>收到消息</span><strong id="statMessages">0</strong></div>
+    <div class="stat"><span>媒体发送</span><strong id="statMedia">0</strong></div>
+    <div class="stat"><span>队列 / 进行中</span><strong id="statQueue">0 / 0</strong></div>
+  </section>
+
+  <main>
+    <aside class="panel groups">
+      <div class="panel-head">
+        <h2>群聊</h2>
+        <span class="hint">点群筛选 · ✎ 备注</span>
+      </div>
+      <div class="group-list" id="groupList"></div>
+    </aside>
+
+    <section class="panel stream">
+      <div class="toolbar">
+        <div class="filters" id="filters">
+          <button data-filter="all" class="active">全部</button>
+          <button data-filter="group">群聊</button>
+          <button data-filter="c2c">私聊</button>
+          <button data-filter="media">媒体</button>
+          <button data-filter="reply">回复</button>
+          <button data-filter="agent">Agent</button>
+          <button data-filter="error">错误</button>
+        </div>
+        <input id="search" type="search" placeholder="搜索群 ID / 用户 / 回复内容…" />
+        <select id="groupFilter"><option value="">全部群聊</option></select>
+        <label class="switch"><input type="checkbox" id="autoscroll" checked />自动滚动</label>
+        <button class="tool-btn" id="pause">暂停</button>
+        <button class="tool-btn danger" id="clear">清屏</button>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-tab="events">事件流</button>
+        <button class="tab" data-tab="memory">记忆</button>
+        <button class="tab" data-tab="raw">原始日志</button>
+      </div>
+      <div class="event-list" id="events"></div>
+      <div class="memory-panel hidden" id="memoryPanel">
+        <div class="memory-toolbar">
+          <input id="memorySearch" type="search" placeholder="搜索昵称 / openid / 摘要…" />
+          <button class="tool-btn" id="memoryRefresh">刷新</button>
+          <span id="memoryStats" class="hint">—</span>
+        </div>
+        <div class="memory-list" id="memoryList"></div>
+      </div>
+      <pre class="raw hidden" id="raw"></pre>
+    </section>
+  </main>
+
+  <footer>
+    <span>本地监控 · 事件 runtime/events.jsonl · 设置 runtime/bot-settings.json</span>
+    <span id="footerMeta">—</span>
+  </footer>
+
+  <button class="new-badge hidden" id="newBadge">0 条新事件 ↓</button>
+
+  <div class="modal-backdrop hidden" id="settingsModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="modal-head">
+        <h2 id="settingsTitle">机器人设置</h2>
+        <button class="icon-btn" id="settingsClose" title="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="setting-row"><span>媒体链接解析</span><input type="checkbox" id="setMedia" /></label>
+        <p class="setting-hint">识别到 B站 / 抖音 / 小红书等支持平台的链接时，自动解析并发送媒体。</p>
+
+        <label class="setting-row"><span>服务器播报显示玩家数</span><input type="number" id="setMcPlayerLimit" min="1" max="20" class="num" /></label>
+        <p class="setting-hint">/服务器 和进出播报最多显示几个在线玩家名，默认 5。</p>
+
+        <label class="setting-row"><span>群聊自动回复</span><input type="checkbox" id="setAuto" /></label>
+        <p class="setting-hint">只作用于没有 @ 机器人的群全量消息；@ 消息和私聊始终回复。媒体链接不受概率限制。</p>
+
+        <label class="setting-row"><span>自动回复概率</span><span id="probValue">10%</span></label>
+        <input type="range" id="setProb" min="0" max="100" step="1" class="range" />
+
+        <label class="setting-row"><span>同群冷却（秒）</span><input type="number" id="setCooldown" min="0" max="3600" class="num" /></label>
+
+        <label class="setting-row"><span>智能判断</span><input type="checkbox" id="setAutoSmart" /></label>
+        <p class="setting-hint">文字点名“梦璃”100% 交给模型判断是否回复；灌水/重复/刷屏跳过；群人数越多，中等相关概率和每群频率上限自动降低。</p>
+        <label class="setting-row"><span>同一用户冷却（秒）</span><input type="number" id="setAutoUserCooldown" min="0" max="3600" class="num" /></label>
+
+        <label class="setting-row"><span>群友记忆</span><input type="checkbox" id="setMemory" /></label>
+        <p class="setting-hint">按群友记住发言、备注和画像；只存本地 SQLite。</p>
+        <label class="setting-row"><span>记忆保留天数</span><input type="number" id="setMemoryRetention" min="0" max="3650" class="num" /></label>
+        <label class="setting-row"><span>注入最近发言条数</span><input type="number" id="setMemoryRecent" min="1" max="20" class="num" /></label>
+        <label class="setting-row"><span>自动画像</span><input type="checkbox" id="setMemoryAuto" /></label>
+        <label class="setting-row"><span>自动画像间隔（条）</span><input type="number" id="setMemoryEvery" min="5" max="500" class="num" /></label>
+        <p class="setting-hint">自动画像会定期调用模型整理性格/兴趣，默认关闭。</p>
+
+        <p class="setting-warning" id="settingsWarning"></p>
+        <p class="setting-error hidden" id="settingsError"></p>
+      </div>
+      <div class="modal-actions">
+        <button class="tool-btn" id="settingsCancel">取消</button>
+        <button class="save-btn" id="settingsSave">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="memoryModal">
+    <div class="modal memory-modal" role="dialog" aria-modal="true" aria-labelledby="memoryTitle">
+      <div class="modal-head">
+        <h2 id="memoryTitle">群友记忆</h2>
+        <button class="icon-btn" id="memoryClose" title="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="memory-meta" id="memoryMeta">—</div>
+        <label class="setting-row"><span>显示名</span><input type="text" id="memoryNickname" class="text-input" readonly /></label>
+        <p class="setting-hint">绑定用户的显示名固定为皮肤站昵称，不能用群名片或自定义别名覆盖。</p>
+        <label class="setting-row"><span>画像摘要</span></label>
+        <textarea id="memorySummary" rows="3" class="text-area"></textarea>
+        <label class="setting-row"><span>人格特点</span></label>
+        <textarea id="memoryPersonality" rows="2" class="text-area"></textarea>
+        <label class="setting-row"><span>互动风格</span></label>
+        <textarea id="memoryInteraction" rows="2" class="text-area"></textarea>
+        <label class="setting-row"><span>标签（逗号分隔）</span></label>
+        <input type="text" id="memoryTags" class="text-input" />
+
+        <div class="memory-section">
+          <div class="memory-section-head">备注</div>
+          <div id="memoryNotes"></div>
+          <div class="memory-add-note">
+            <input type="text" id="memoryNoteInput" class="text-input" placeholder="添加备注…" />
+            <button class="tool-btn" id="memoryAddNote">添加</button>
+          </div>
+        </div>
+
+        <div class="memory-section">
+          <div class="memory-section-head">最近发言</div>
+          <div id="memoryMessages" class="memory-messages"></div>
+        </div>
+        <p class="setting-error hidden" id="memoryError"></p>
+      </div>
+      <div class="modal-actions">
+        <button class="tool-btn danger" id="memoryDelete">删除记忆</button>
+        <span class="spacer"></span>
+        <button class="tool-btn" id="memoryCancel">关闭</button>
+        <button class="save-btn" id="memorySave">保存画像</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const state = {
+      events: [],
+      groups: new Map(),
+      status: {},
+      settings: { mediaEnabled: true, mcPlayerLimit: 5, autoReplyEnabled: false, autoReplyProbability: 0.1, autoReplyCooldownSeconds: 30 },
+      memory: { members: [], stats: {}, detail: null, query: '' },
+      filter: 'all',
+      groupFilter: '',
+      search: '',
+      paused: false,
+      autoscroll: true,
+      pending: 0,
+      aliases: loadAliases(),
+      rawLines: [],
+      tab: 'events',
+    }
+
+    const el = id => document.getElementById(id)
+    const eventsEl = el('events')
+    const rawEl = el('raw')
+    const memoryPanel = el('memoryPanel')
+    const groupListEl = el('groupList')
+    const groupFilterEl = el('groupFilter')
+
+    function esc(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+    }
+
+    function shortId(value, length = 10) {
+      const text = String(value || '')
+      return text.length > length ? text.slice(0, length) + '…' : text
+    }
+
+    function fmtTime(ts) {
+      if (!ts) return '—'
+      const date = new Date(ts)
+      if (Number.isNaN(date.getTime())) return String(ts)
+      return date.toLocaleTimeString('zh-CN', { hour12: false })
+    }
+
+    function fmtDateTime(ts) {
+      if (!ts) return '—'
+      const date = new Date(ts)
+      if (Number.isNaN(date.getTime())) return String(ts)
+      return date.toLocaleString('zh-CN', { hour12: false })
+    }
+
+    function fmtSize(bytes) {
+      const value = Number(bytes || 0)
+      if (!value) return '—'
+      if (value >= 1024 * 1024) return (value / 1024 / 1024).toFixed(1) + ' MB'
+      if (value >= 1024) return (value / 1024).toFixed(0) + ' KB'
+      return value + ' B'
+    }
+
+    function loadAliases() {
+      try {
+        return JSON.parse(localStorage.getItem('qqbot.monitor.aliases') || '{}') || {}
+      } catch {
+        return {}
+      }
+    }
+
+    function saveAliases() {
+      try {
+        localStorage.setItem('qqbot.monitor.aliases', JSON.stringify(state.aliases))
+      } catch {
+        // ignore
+      }
+    }
+
+    function aliasFor(peerId) {
+      return state.aliases[peerId] || shortId(peerId)
+    }
+
+    function setConn(kind, text) {
+      el('connDot').className = 'dot ' + kind
+      el('connText').textContent = text
+    }
+
+    function eventKind(event) {
+      if (event.kind) return event.kind
+      const key = String(event.key || '')
+      if (key.startsWith('group:')) return 'group'
+      if (key.startsWith('c2c:')) return 'c2c'
+      return ''
+    }
+
+    function peerOf(event) {
+      if (event.peerId) return String(event.peerId)
+      const key = String(event.key || '')
+      const index = key.indexOf(':')
+      return index >= 0 ? key.slice(index + 1) : ''
+    }
+
+    function addGroupFromEvent(event) {
+      if (event.event !== 'inbound' || event.kind !== 'group' || !event.peerId) return
+      let group = state.groups.get(event.peerId)
+      if (!group) {
+        group = { peerId: event.peerId, count: 0, mediaOnly: 0, lastTs: null, lastUser: null }
+        state.groups.set(event.peerId, group)
+      }
+      group.count += 1
+      if (event.mediaOnly) group.mediaOnly += 1
+      group.lastTs = event.ts || group.lastTs
+      group.lastUser = event.userId || group.lastUser
+    }
+
+    function inboundCount() {
+      return state.events.filter(event => event.event === 'inbound').length
+    }
+
+    function mediaSentCount() {
+      const fromEvents = state.events.filter(event => event.event === 'media' && event.phase === 'sent').length
+      return Math.max(fromEvents, Number(state.status.mediaSent || 0))
+    }
+
+    function renderStatus() {
+      const status = state.status || {}
+      const connected = Boolean(status.connected)
+      setConn(connected ? 'online' : 'offline', connected ? '网关在线' : '网关离线')
+      el('subtitle').textContent = connected
+        ? `实时监控 · ${status.bot?.username || '未知机器人'} · pid ${status.pid || '—'}`
+        : '监控服务已连接，等待桥接上线…'
+      el('statConn').textContent = connected ? '在线' : '离线'
+      el('statConn').className = connected ? 'accent' : 'danger'
+      el('statBot').textContent = status.bot ? `${status.bot.username || '—'} · ${shortId(status.bot.id, 8)}` : '—'
+      el('statGroups').textContent = String(state.groups.size)
+      el('statMessages').textContent = String(inboundCount())
+      el('statMedia').textContent = String(mediaSentCount())
+      const active = Number(status.activeAgents || 0)
+      const queued = Number(status.queued || 0)
+      el('statQueue').textContent = `${queued} / ${active}`
+      el('statQueue').className = active > 0 ? 'warn' : ''
+      const autoEnabled = Boolean(state.settings?.autoReplyEnabled)
+      const autoSmart = Boolean(state.settings?.autoReplySmart)
+      const autoProbability = Math.round((Number(state.settings?.autoReplyProbability) || 0) * 100)
+      el('footerMeta').textContent = [
+        status.mediaEnabled === false ? '媒体解析关' : '媒体解析开',
+        `群@ ${status.groupAtMessages || 0} / 全量 ${status.groupFullMessages || 0}`,
+        `自动回复 ${status.autoReplies || 0} 次${status.autoReplySkipped ? ` / 跳过 ${status.autoReplySkipped}` : ''}${autoEnabled ? `（${autoProbability}%${autoSmart ? ' · 智能' : ''}）` : '（关）'}`,
+        `记忆 ${status.memoryMembers || 0} 人 / ${status.memoryMessages || 0} 条`,
+        status.lastMessageAt ? `最后消息 ${fmtDateTime(status.lastMessageAt)}` : '暂无消息',
+        status.lastError ? `错误：${status.lastError}` : '',
+      ].filter(Boolean).join(' · ')
+    }
+
+    function renderGroups() {
+      const groups = [...state.groups.values()].sort((left, right) =>
+        String(right.lastTs || '').localeCompare(String(left.lastTs || '')))
+      if (!groups.length) {
+        groupListEl.innerHTML = '<div class="empty">还没有群消息</div>'
+      } else {
+        groupListEl.innerHTML = groups.map(group => {
+          const active = state.groupFilter === group.peerId ? ' active' : ''
+          const name = aliasFor(group.peerId)
+          return `<div class="group-row${active}" data-peer="${esc(group.peerId)}">
+            <button class="group-main" data-action="filter" data-peer="${esc(group.peerId)}" title="${esc(group.peerId)}">
+              <div class="group-top"><span class="group-name">${esc(name)}</span><span class="group-count">${group.count}</span></div>
+              <div class="group-meta">${esc(fmtTime(group.lastTs))} · ${group.mediaOnly ? '媒体监听 ' + group.mediaOnly + ' · ' : ''}${esc(shortId(group.lastUser, 8))}</div>
+            </button>
+            <button class="icon-btn" data-action="alias" data-peer="${esc(group.peerId)}" title="设置群备注">✎</button>
+            <button class="icon-btn" data-action="copy" data-peer="${esc(group.peerId)}" title="复制群 openid">⧉</button>
+          </div>`
+        }).join('')
+      }
+      const selected = state.groupFilter
+      groupFilterEl.innerHTML = '<option value="">全部群聊</option>' + groups.map(group =>
+        `<option value="${esc(group.peerId)}">${esc(aliasFor(group.peerId))}（${group.count}）</option>`).join('')
+      groupFilterEl.value = selected
+    }
+
+    function matches(event) {
+      if (state.groupFilter) {
+        if (peerOf(event) !== state.groupFilter) return false
+      }
+      if (state.filter !== 'all') {
+        if (state.filter === 'group' && eventKind(event) !== 'group') return false
+        if (state.filter === 'c2c' && eventKind(event) !== 'c2c') return false
+        if (state.filter === 'media' && event.event !== 'media') return false
+        if (state.filter === 'reply' && event.event !== 'reply') return false
+        if (state.filter === 'agent' && event.event !== 'agent') return false
+        if (state.filter === 'error' && event.event !== 'error') return false
+      }
+      if (state.search) {
+        const haystack = JSON.stringify(event).toLowerCase()
+        if (!haystack.includes(state.search.toLowerCase())) return false
+      }
+      return true
+    }
+
+    function badge(label, kind) {
+      return `<span class="badge ${kind}">${esc(label)}</span>`
+    }
+
+    function renderEvent(event) {
+      const time = `<div class="ev-time">${esc(fmtTime(event.ts))}</div>`
+      const sim = event.simulated ? '<span class="chip sim">模拟</span>' : ''
+      let body = ''
+
+      if (event.event === 'inbound') {
+        const isGroup = event.kind === 'group'
+        const kindLabel = isGroup ? '群消息' : event.kind === 'c2c' ? '私聊' : '消息'
+        const peer = isGroup ? aliasFor(event.peerId) : shortId(event.peerId)
+        body = `<div class="ev-line">${badge(kindLabel, isGroup ? 'group' : 'c2c')}${sim}
+          <span class="ev-title">${esc(peer)}</span>
+          <span class="ev-meta">${esc(shortId(event.userId, 8))} · ${event.chars || 0} 字 · ${esc(event.type || '')}</span>
+          ${event.mediaOnly ? '<span class="chip mediaonly">媒体监听</span>' : ''}</div>`
+      } else if (event.event === 'reply') {
+        body = `<div class="ev-line">${badge('梦璃回复', 'reply')}${sim}
+          <span class="ev-title">${esc(aliasFor(peerOf(event)))}</span>
+          <span class="ev-meta">${event.durationMs ? (event.durationMs / 1000).toFixed(1) + 's' : ''}</span></div>
+          <div class="ev-detail reply-text clamp" data-expand="1">${esc(event.text || '')}</div>`
+      } else if (event.event === 'media') {
+        const phase = event.phase || 'parsed'
+        if (phase === 'parsed' || phase === 'metadata') {
+          const isMetadata = phase === 'metadata'
+          const files = (event.files || []).map(file =>
+            `<div class="file-line">${esc(file.type || 'media')} · ${esc(file.name || '')} · ${esc(fmtSize(file.size))}</div>`).join('')
+          const title = event.title || event.platform || '未知平台'
+          const meta = isMetadata ? '已识别，后台下载中…' : `${(event.files || []).length} 个文件`
+          const detail = isMetadata ? '梦璃的评论会先回来，媒体下载完再补发。' : files
+          body = `<div class="ev-line">${badge(isMetadata ? '媒体识别' : '媒体解析', 'media')}${sim}
+            <span class="ev-title">${esc(title)}</span>
+            <span class="ev-meta">${esc(meta)} · ${esc(aliasFor(event.peerId))}</span></div>
+            <div class="ev-detail">${detail}</div>`
+        } else {
+          const tone = phase === 'sent' ? 'ok' : phase === 'skipped' ? 'warn' : 'error'
+          const label = phase === 'sent' ? '媒体已发送' : phase === 'skipped' ? '媒体跳过' : '媒体失败'
+          const detail = phase === 'skipped'
+            ? `原因：${esc(event.reason || '')} ${event.size ? '· ' + esc(fmtSize(event.size)) : ''}`
+            : phase === 'failed' ? esc(event.error || '') : `${esc(event.media || '')} · ${esc(fmtSize(event.size))}`
+          body = `<div class="ev-line">${badge(label, tone)}${sim}
+            <span class="ev-title">${esc(event.name || event.media || '媒体')}</span>
+            <span class="ev-meta">${esc(aliasFor(event.peerId))}</span></div>
+            <div class="ev-detail">${detail}</div>`
+        }
+      } else if (event.event === 'auto_reply') {
+        body = `<div class="ev-line">${badge('自动回复命中', 'agent')}${sim}
+          <span class="ev-title">${esc(aliasFor(event.peerId))}</span>
+          <span class="ev-meta">概率 ${Math.round((Number(event.probability) || 0) * 100)}% · 准备回复</span></div>`
+      } else if (event.event === 'agent') {
+        const done = event.phase === 'done'
+        body = `<div class="ev-line">${badge(done ? 'Agent 完成' : 'Agent 开始', 'agent')}${sim}
+          <span class="ev-title">${esc(aliasFor(peerOf(event)))}</span>
+          <span class="ev-meta">${done ? (event.durationMs / 1000).toFixed(1) + 's · ' + (event.chars || 0) + ' 字' : '等待模型…'}</span></div>`
+      } else if (event.event === 'command') {
+        body = `<div class="ev-line">${badge('指令', 'cmd')}${sim}
+          <span class="ev-title">${esc(event.command || '')}</span>
+          <span class="ev-meta">${esc(event.args || '')}</span></div>`
+      } else if (event.event === 'error') {
+        body = `<div class="ev-line">${badge('错误', 'error')}${sim}
+          <span class="ev-title">${esc(event.scope || '')}</span>
+          <span class="ev-meta">${esc(aliasFor(peerOf(event)))}</span></div>
+          <div class="ev-detail">${esc(event.message || '')}</div>`
+      } else if (event.event === 'connect') {
+        const online = Boolean(event.connected)
+        body = `<div class="ev-line">${badge(online ? '网关已连接' : '网关断开', online ? 'ok' : 'error')}${sim}
+          <span class="ev-title">${esc(event.bot || '')}</span>
+          <span class="ev-meta">${esc(event.error || event.reason || (event.code ? 'code ' + event.code : ''))}</span></div>`
+      } else {
+        body = `<div class="ev-line">${badge(event.event || '事件', 'cmd')}${sim}<span class="ev-meta">${esc(JSON.stringify(event))}</span></div>`
+      }
+
+      return `<div class="ev">${time}<div class="ev-body">${body}</div></div>`
+    }
+
+    let renderTimer = null
+    function scheduleRender(scroll = false) {
+      if (renderTimer) return
+      renderTimer = setTimeout(() => {
+        renderTimer = null
+        renderEvents(scroll)
+      }, 120)
+    }
+
+    function renderEvents() {
+      const filtered = state.events.filter(matches)
+      const visible = filtered.slice(-500)
+      if (!visible.length) {
+        eventsEl.innerHTML = '<div class="empty">还没有匹配的事件</div>'
+      } else {
+        eventsEl.innerHTML = visible.map(renderEvent).join('')
+      }
+      if (state.autoscroll && !state.paused) {
+        eventsEl.scrollTop = eventsEl.scrollHeight
+      }
+    }
+
+    function renderRaw() {
+      rawEl.textContent = state.rawLines.slice(-800).join('\n')
+      rawEl.scrollTop = rawEl.scrollHeight
+    }
+
+    function renderAll(scroll = true) {
+      renderStatus()
+      renderGroups()
+      if (state.tab === 'events') renderEvents(scroll)
+      else renderRaw()
+    }
+
+    function updatePending() {
+      const badge = el('newBadge')
+      if (state.paused && state.pending > 0) {
+        badge.textContent = `${state.pending} 条新事件 ↓`
+        badge.classList.remove('hidden')
+      } else {
+        badge.classList.add('hidden')
+      }
+    }
+
+    function onEvent(event) {
+      state.events.push(event)
+      if (state.events.length > 1500) state.events.splice(0, state.events.length - 1500)
+      addGroupFromEvent(event)
+      if (state.paused) {
+        state.pending += 1
+        updatePending()
+        renderStatus()
+        renderGroups()
+        return
+      }
+      scheduleRender(true)
+      renderStatus()
+      renderGroups()
+    }
+
+    async function resync() {
+      try {
+        const response = await fetch('/api/bootstrap?limit=600', { cache: 'no-store' })
+        const data = await response.json()
+        state.events = Array.isArray(data.events) ? data.events : []
+        state.groups.clear()
+        state.events.forEach(addGroupFromEvent)
+        state.rawLines = Array.isArray(data.raw) ? data.raw : []
+        state.status = data.status || {}
+        state.settings = data.settings || state.settings
+        renderAll(true)
+      } catch {
+        // 保留当前视图
+      }
+    }
+
+    let firstOpen = true
+    let source = null
+    function connectStream() {
+      if (source) source.close()
+      source = new EventSource('/api/stream')
+      source.onopen = () => {
+        setConn('online', '实时连接')
+        if (!firstOpen) void resync()
+        firstOpen = false
+      }
+      source.onerror = () => setConn('warn', '重连中…')
+      source.addEventListener('hello', message => {
+        try {
+          const data = JSON.parse(message.data)
+          if (data.status) {
+            state.status = data.status
+            renderStatus()
+          }
+          if (!state.events.length && Array.isArray(data.events) && data.events.length) {
+            state.events = data.events
+            state.groups.clear()
+            state.events.forEach(addGroupFromEvent)
+            renderAll(true)
+          }
+        } catch {
+          // ignore
+        }
+      })
+      source.addEventListener('event', message => {
+        try {
+          onEvent(JSON.parse(message.data))
+        } catch {
+          // ignore
+        }
+      })
+      source.addEventListener('events-reset', () => {
+        state.events = []
+        state.groups.clear()
+        renderAll(true)
+      })
+      source.addEventListener('status', message => {
+        try {
+          state.status = JSON.parse(message.data)
+          renderStatus()
+        } catch {
+          // ignore
+        }
+      })
+      source.addEventListener('raw', message => {
+        try {
+          const data = JSON.parse(message.data)
+          if (!data.line) return
+          state.rawLines.push(data.line)
+          if (state.rawLines.length > 1200) state.rawLines.splice(0, state.rawLines.length - 1200)
+          if (state.tab === 'raw') renderRaw()
+        } catch {
+          // ignore
+        }
+      })
+      source.addEventListener('raw-reset', () => {
+        state.rawLines = []
+        if (state.tab === 'raw') renderRaw()
+      })
+    }
+
+    async function boot() {
+      try {
+        const response = await fetch('/api/bootstrap?limit=600', { cache: 'no-store' })
+        if (!response.ok) throw new Error('HTTP ' + response.status)
+        const data = await response.json()
+        state.events = Array.isArray(data.events) ? data.events : []
+        state.groups.clear()
+        state.events.forEach(addGroupFromEvent)
+        state.rawLines = Array.isArray(data.raw) ? data.raw : []
+        state.status = data.status || {}
+        state.settings = data.settings || state.settings
+        renderAll(true)
+      } catch (error) {
+        setConn('offline', '监控服务不可用')
+        el('subtitle').textContent = '无法读取 /api/bootstrap：' + error.message
+      }
+      connectStream()
+    }
+
+    el('filters').addEventListener('click', event => {
+      const button = event.target.closest('button[data-filter]')
+      if (!button) return
+      state.filter = button.dataset.filter
+      for (const item of el('filters').querySelectorAll('button')) item.classList.toggle('active', item === button)
+      renderEvents(false)
+    })
+
+    groupFilterEl.addEventListener('change', () => {
+      state.groupFilter = groupFilterEl.value
+      renderGroups()
+      renderEvents(false)
+    })
+
+    let searchTimer = null
+    el('search').addEventListener('input', event => {
+      clearTimeout(searchTimer)
+      searchTimer = setTimeout(() => {
+        state.search = event.target.value.trim()
+        renderEvents(false)
+      }, 150)
+    })
+
+    el('autoscroll').addEventListener('change', event => {
+      state.autoscroll = event.target.checked
+      if (state.autoscroll) eventsEl.scrollTop = eventsEl.scrollHeight
+    })
+
+    el('pause').addEventListener('click', () => {
+      state.paused = !state.paused
+      el('pause').textContent = state.paused ? '继续' : '暂停'
+      if (!state.paused) {
+        state.pending = 0
+        updatePending()
+        renderEvents(true)
+      }
+    })
+
+    el('newBadge').addEventListener('click', () => {
+      state.paused = false
+      state.pending = 0
+      el('pause').textContent = '暂停'
+      updatePending()
+      renderEvents(true)
+    })
+
+    el('clear').addEventListener('click', () => {
+      state.events = []
+      state.groups.clear()
+      state.pending = 0
+      updatePending()
+      renderAll(false)
+    })
+
+    groupListEl.addEventListener('click', event => {
+      const target = event.target.closest('[data-action]')
+      if (!target) return
+      const peerId = target.dataset.peer
+      const action = target.dataset.action
+      if (action === 'filter') {
+        state.groupFilter = state.groupFilter === peerId ? '' : peerId
+        groupFilterEl.value = state.groupFilter
+        renderGroups()
+        renderEvents(false)
+      } else if (action === 'alias') {
+        const current = state.aliases[peerId] || ''
+        const value = window.prompt('给这个群设置备注（留空删除）\n' + peerId, current)
+        if (value === null) return
+        const trimmed = value.trim()
+        if (trimmed) state.aliases[peerId] = trimmed
+        else delete state.aliases[peerId]
+        saveAliases()
+        renderGroups()
+        renderEvents(false)
+      } else if (action === 'copy') {
+        navigator.clipboard?.writeText(peerId).catch(() => {})
+      }
+    })
+
+    eventsEl.addEventListener('click', event => {
+      const target = event.target.closest('[data-expand]')
+      if (target) target.classList.toggle('clamp')
+    })
+
+    document.querySelector('.tabs').addEventListener('click', async event => {
+      const button = event.target.closest('button[data-tab]')
+      if (!button) return
+      state.tab = button.dataset.tab
+      for (const item of document.querySelectorAll('.tab')) item.classList.toggle('active', item === button)
+      const raw = state.tab === 'raw'
+      const memory = state.tab === 'memory'
+      eventsEl.classList.toggle('hidden', raw || memory)
+      rawEl.classList.toggle('hidden', !raw)
+      memoryPanel.classList.toggle('hidden', !memory)
+      if (raw) {
+        if (!state.rawLines.length) {
+          try {
+            const response = await fetch('/api/raw?limit=500', { cache: 'no-store' })
+            const data = await response.json()
+            state.rawLines = Array.isArray(data.lines) ? data.lines : []
+          } catch {
+            // ignore
+          }
+        }
+        renderRaw()
+      } else if (memory) {
+        await loadMemory()
+      } else {
+        renderEvents(false)
+      }
+    })
+
+    function openSettings() {
+      const settings = state.settings || {}
+      el('setMedia').checked = settings.mediaEnabled !== false
+      el('setMcPlayerLimit').value = String(Number(settings.mcPlayerLimit) || 5)
+      el('setAuto').checked = Boolean(settings.autoReplyEnabled)
+      el('setAutoSmart').checked = settings.autoReplySmart !== false
+      const probability = Math.round((Number(settings.autoReplyProbability) || 0) * 100)
+      el('setProb').value = String(probability)
+      el('probValue').textContent = probability + '%'
+      el('setCooldown').value = String(Number(settings.autoReplyCooldownSeconds) || 0)
+      el('setAutoUserCooldown').value = String(Number(settings.autoReplyUserCooldownSeconds) || 0)
+      el('setMemory').checked = settings.memoryEnabled !== false
+      el('setMemoryRetention').value = String(Number(settings.memoryRetentionDays) || 90)
+      el('setMemoryRecent').value = String(Number(settings.memoryRecentMessages) || 6)
+      el('setMemoryAuto').checked = Boolean(settings.memoryAutoProfile)
+      el('setMemoryEvery').value = String(Number(settings.memoryAutoProfileEvery) || 20)
+      el('settingsError').classList.add('hidden')
+      const full = Number(state.status.groupFullMessages || 0)
+      el('settingsWarning').textContent = full > 0
+        ? `已收到 ${full} 条全量群消息，自动回复概率会按此生效。`
+        : '还没收到全量群消息。QQ 开放平台未开启「群全量消息」时，不 @ 的群消息不会到达，概率设置暂时不会触发。'
+      el('settingsModal').classList.remove('hidden')
+    }
+
+    function closeSettings() {
+      el('settingsModal').classList.add('hidden')
+    }
+
+    async function saveSettings() {
+      const payload = {
+        mediaEnabled: el('setMedia').checked,
+        mcPlayerLimit: Number(el('setMcPlayerLimit').value) || 5,
+        autoReplyEnabled: el('setAuto').checked,
+        autoReplyProbability: Number(el('setProb').value) / 100,
+        autoReplyCooldownSeconds: Number(el('setCooldown').value) || 0,
+        autoReplySmart: el('setAutoSmart').checked,
+        autoReplyUserCooldownSeconds: Number(el('setAutoUserCooldown').value) || 0,
+        memoryEnabled: el('setMemory').checked,
+        memoryRetentionDays: Number(el('setMemoryRetention').value) || 0,
+        memoryRecentMessages: Number(el('setMemoryRecent').value) || 6,
+        memoryAutoProfile: el('setMemoryAuto').checked,
+        memoryAutoProfileEvery: Number(el('setMemoryEvery').value) || 20,
+      }
+      el('settingsSave').disabled = true
+      try {
+        const response = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || '保存失败')
+        state.settings = data.settings || payload
+        closeSettings()
+        renderStatus()
+      } catch (error) {
+        el('settingsError').textContent = '保存失败：' + error.message
+        el('settingsError').classList.remove('hidden')
+      } finally {
+        el('settingsSave').disabled = false
+      }
+    }
+
+    el('settingsBtn').addEventListener('click', openSettings)
+    el('settingsClose').addEventListener('click', closeSettings)
+    el('settingsCancel').addEventListener('click', closeSettings)
+    el('settingsSave').addEventListener('click', saveSettings)
+    el('setProb').addEventListener('input', () => {
+      el('probValue').textContent = el('setProb').value + '%'
+    })
+    el('settingsModal').addEventListener('click', event => {
+      if (event.target === el('settingsModal')) closeSettings()
+    })
+
+    function memoryPeerLabel(connectionKey) {
+      const text = String(connectionKey || '')
+      const index = text.indexOf(':')
+      const kind = index >= 0 ? text.slice(0, index) : ''
+      const peer = index >= 0 ? text.slice(index + 1) : text
+      if (kind === 'group') return `群 ${aliasFor(peer)}`
+      if (kind === 'c2c') return `私聊 ${shortId(peer)}`
+      return text
+    }
+
+    function memoryScope(member) {
+      const connections = Array.isArray(member.connections) && member.connections.length
+        ? member.connections
+        : [member.connectionKey].filter(Boolean)
+      if (connections.length > 1) return `已合并 ${connections.length} 个群/私聊`
+      return memoryPeerLabel(connections[0])
+    }
+
+    async function loadMemory(query = state.memory.query) {
+      state.memory.query = query || ''
+      try {
+        const response = await fetch('/api/memory?query=' + encodeURIComponent(state.memory.query) + '&limit=300', { cache: 'no-store' })
+        const data = await response.json()
+        state.memory.members = Array.isArray(data.members) ? data.members : []
+        state.memory.stats = data.stats || {}
+        renderMemory()
+      } catch (error) {
+        el('memoryList').innerHTML = `<div class="empty">加载失败：${esc(error.message)}</div>`
+      }
+    }
+
+    function renderMemory() {
+      const stats = state.memory.stats || {}
+      el('memoryStats').textContent = `${stats.members || 0} 人 · ${stats.messages || 0} 条消息 · ${stats.notes || 0} 条备注`
+      const members = state.memory.members || []
+      if (!members.length) {
+        el('memoryList').innerHTML = '<div class="empty">还没有群友记忆。等群友发言，或在设置里确认记忆已开启。</div>'
+        return
+      }
+      el('memoryList').innerHTML = members.map(member => `
+        <div class="memory-row" data-memory-id="${member.id}">
+          <div style="min-width:0">
+            <div class="memory-name">${esc(member.nickname || shortId(member.userOpenid))}</div>
+            <div class="memory-sub">${esc(memoryScope(member))} · ${member.observedMessageCount || 0} 条 · 最近 ${esc(fmtDateTime(member.lastActivityAt))}${member.aliases?.length ? ' · 别名 ' + esc(member.aliases.join('、')) : ''}</div>
+            <div class="memory-summary">${esc(member.summary || '暂无画像，可在详情里补充或让群友发 /整理记忆')}</div>
+          </div>
+          <div class="memory-badges">
+            <span class="chip">${member.noteCount || 0} 备注</span>
+            ${member.lastAnalyzedAt ? '<span class="chip">已画像</span>' : ''}
+          </div>
+        </div>`).join('')
+    }
+
+    async function openMemory(id) {
+      try {
+        const response = await fetch('/api/memory/member?id=' + encodeURIComponent(id), { cache: 'no-store' })
+        if (!response.ok) throw new Error('群友记忆不存在')
+        state.memory.detail = await response.json()
+        renderMemoryDetail()
+        el('memoryModal').classList.remove('hidden')
+      } catch (error) {
+        el('memoryList').innerHTML = `<div class="empty">${esc(error.message)}</div>`
+      }
+    }
+
+    function renderMemoryDetail() {
+      const detail = state.memory.detail
+      if (!detail) return
+      const member = detail.member
+      el('memoryTitle').textContent = member.nickname || shortId(member.userOpenid)
+      el('memoryMeta').textContent = [
+        memoryScope(member),
+        `openid ${member.userOpenid}`,
+        `${member.observedMessageCount || 0} 条消息`,
+        `回复 ${member.replyCompletedCount || 0}/${member.replyTriggeredCount || 0}`,
+        member.lastAnalyzedAt ? `最近画像 ${fmtDateTime(member.lastAnalyzedAt)}` : '尚未画像',
+      ].join(' · ')
+      el('memoryNickname').value = member.nickname || ''
+      el('memorySummary').value = member.summary || ''
+      el('memoryPersonality').value = member.personality || ''
+      el('memoryInteraction').value = member.interactionStyle || ''
+      el('memoryTags').value = (member.tags || []).join('，')
+      el('memoryNotes').innerHTML = (detail.notes || []).length
+        ? detail.notes.map(note => `<div class="memory-note"><span>${esc(note.content)}</span><button data-note-id="${note.id}" title="删除备注">删除</button></div>`).join('')
+        : '<div class="empty">暂无备注</div>'
+      const messages = detail.messages || []
+      el('memoryMessages').innerHTML = messages.length
+        ? messages.slice(-20).map(message => `<div class="memory-message"><span>${esc(message.content)}</span><span class="ev-meta">${esc(fmtTime(message.createdAt))}</span></div>`).join('')
+        : '<div class="empty">暂无发言</div>'
+      el('memoryError').classList.add('hidden')
+    }
+
+    function closeMemory() {
+      el('memoryModal').classList.add('hidden')
+    }
+
+    async function saveMemoryMember() {
+      const detail = state.memory.detail
+      if (!detail) return
+      const payload = {
+        id: detail.member.id,
+        summary: el('memorySummary').value.trim(),
+        personality: el('memoryPersonality').value.trim(),
+        interactionStyle: el('memoryInteraction').value.trim(),
+        tags: el('memoryTags').value.split(/[,，]/).map(item => item.trim()).filter(Boolean),
+      }
+      try {
+        const response = await fetch('/api/memory/member', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || '保存失败')
+        state.memory.detail.member = data.member
+        renderMemoryDetail()
+        await loadMemory()
+        closeMemory()
+      } catch (error) {
+        el('memoryError').textContent = '保存失败：' + error.message
+        el('memoryError').classList.remove('hidden')
+      }
+    }
+
+    async function addMemoryNote() {
+      const detail = state.memory.detail
+      if (!detail) return
+      const content = el('memoryNoteInput').value.trim()
+      if (!content) return
+      try {
+        const response = await fetch('/api/memory/note', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ memberId: detail.member.id, content }),
+        })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || '添加失败')
+        el('memoryNoteInput').value = ''
+        await openMemory(detail.member.id)
+        await loadMemory()
+      } catch (error) {
+        el('memoryError').textContent = '添加备注失败：' + error.message
+        el('memoryError').classList.remove('hidden')
+      }
+    }
+
+    async function deleteMemoryNote(id) {
+      const detail = state.memory.detail
+      if (!detail) return
+      try {
+        const response = await fetch('/api/memory/note?id=' + encodeURIComponent(id), { method: 'DELETE' })
+        if (!response.ok) throw new Error('删除失败')
+        await openMemory(detail.member.id)
+        await loadMemory()
+      } catch (error) {
+        el('memoryError').textContent = '删除备注失败：' + error.message
+        el('memoryError').classList.remove('hidden')
+      }
+    }
+
+    async function deleteMemoryMember() {
+      const detail = state.memory.detail
+      if (!detail) return
+      if (!window.confirm('确定删除这个群友的全部记忆？删除后无法恢复。')) return
+      try {
+        const response = await fetch('/api/memory/member?id=' + encodeURIComponent(detail.member.id), { method: 'DELETE' })
+        if (!response.ok) throw new Error('删除失败')
+        closeMemory()
+        state.memory.detail = null
+        await loadMemory()
+      } catch (error) {
+        el('memoryError').textContent = '删除失败：' + error.message
+        el('memoryError').classList.remove('hidden')
+      }
+    }
+
+    el('memoryList').addEventListener('click', event => {
+      const row = event.target.closest('[data-memory-id]')
+      if (row) void openMemory(row.dataset.memoryId)
+    })
+    el('memoryRefresh').addEventListener('click', () => void loadMemory())
+    let memorySearchTimer = null
+    el('memorySearch').addEventListener('input', event => {
+      clearTimeout(memorySearchTimer)
+      memorySearchTimer = setTimeout(() => void loadMemory(event.target.value.trim()), 200)
+    })
+    el('memoryClose').addEventListener('click', closeMemory)
+    el('memoryCancel').addEventListener('click', closeMemory)
+    el('memorySave').addEventListener('click', saveMemoryMember)
+    el('memoryAddNote').addEventListener('click', addMemoryNote)
+    el('memoryNoteInput').addEventListener('keydown', event => {
+      if (event.key === 'Enter') void addMemoryNote()
+    })
+    el('memoryDelete').addEventListener('click', deleteMemoryMember)
+    el('memoryNotes').addEventListener('click', event => {
+      const button = event.target.closest('[data-note-id]')
+      if (button) void deleteMemoryNote(button.dataset.noteId)
+    })
+    el('memoryModal').addEventListener('click', event => {
+      if (event.target === el('memoryModal')) closeMemory()
+    })
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        closeSettings()
+        closeMemory()
+      }
+    })
+
+    boot()
+  </script>
+</body>
+</html>

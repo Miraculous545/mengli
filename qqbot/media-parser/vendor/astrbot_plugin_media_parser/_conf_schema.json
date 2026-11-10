@@ -1,0 +1,1336 @@
+{
+    "parsers": {
+        "description": "解析器与输出模式",
+        "type": "object",
+        "hint": "关闭=不解析该平台；仅文本=只发送摘要文本；仅富媒体=只发送图片/视频/音频。仅文本仍受“消息输出 → 文本元数据”开关控制。",
+        "items": {
+            "bilibili": {
+                "description": "B站",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "douyin": {
+                "description": "抖音",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "kuaishou": {
+                "description": "快手",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "acfun": {
+                "description": "AcFun",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "hongguo": {
+                "description": "红果短剧",
+                "type": "string",
+                "hint": "每个分享链接解析指定一集；视频需要本地缓存，加密视频需要 ffmpeg。",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "netease": {
+                "description": "网易云音乐",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "hint": "支持单曲信息、当前可播放音频及热评；不获取会员权限外的完整歌曲。",
+                "default": "全部发送"
+            },
+            "ximalaya": {
+                "description": "喜马拉雅",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "hint": "支持单集信息、公开可播放音频及首屏高赞评论；不支持专辑批量解析，不获取付费权限外的音频。",
+                "default": "全部发送"
+            },
+            "weibo": {
+                "description": "微博",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "xiaohongshu": {
+                "description": "小红书",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "xianyu": {
+                "description": "闲鱼",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "toutiao": {
+                "description": "今日头条",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "xiaoheihe": {
+                "description": "小黑盒",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "xueqiu": {
+                "description": "雪球",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "wechat": {
+                "description": "微信（公众号 / 视频号）",
+                "type": "string",
+                "hint": "公众号图文可匿名解析；视频号短链需要在微信设置中填写腾讯元宝 Cookie。",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "zhihu": {
+                "description": "知乎",
+                "type": "string",
+                "hint": "支持知乎指定回答和专栏文章的匿名解析；文章使用自动访客会话与接口签名。",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "tieba": {
+                "description": "百度贴吧",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "nga": {
+                "description": "NGA",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "hupu": {
+                "description": "虎扑",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "douban": {
+                "description": "豆瓣",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "v2ex": {
+                "description": "V2EX",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "juejin": {
+                "description": "稀土掘金",
+                "type": "string",
+                "hint": "支持公开文章正文、配图及评论；热评需另行设置条数。",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "csdn": {
+                "description": "CSDN",
+                "type": "string",
+                "hint": "支持公开博客正文、配图及普通评论；付费文章仅输出公开预览并标注限制。",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "cnblogs": {
+                "description": "博客园",
+                "type": "string",
+                "hint": "支持公开博客正文和配图；匿名评论接口要求登录，暂不输出评论。",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "gitee": {
+                "description": "Gitee",
+                "type": "string",
+                "hint": "公开仓库可发送概况与 README 截图；截图需要安装 Chromium。Issue 提供正文与评论。仅文本时不截图，仅富媒体时只发送仓库 README。",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "tiktok": {
+                "description": "TikTok",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "youtube": {
+                "description": "YouTube",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "steam": {
+                "description": "Steam",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "twitter": {
+                "description": "Twitter/X",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "pixiv": {
+                "description": "Pixiv",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "github": {
+                "description": "GitHub",
+                "type": "string",
+                "hint": "公开仓库首页可发送概况与 README 截图；截图需要安装 Chromium。仅文本时不截图，仅富媒体时只发送 README。",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "gitlab": {
+                "description": "GitLab",
+                "type": "string",
+                "hint": "gitlab.com 公开项目可发送概况与 README 截图；截图需要安装 Chromium。Issue 提供正文与讨论，不支持自建站点。仅文本时不截图。",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            }
+        }
+    },
+    "trigger": {
+        "description": "触发设置",
+        "type": "object",
+        "items": {
+            "auto_parse": {
+                "description": "自动解析链接",
+                "type": "bool",
+                "default": true
+            },
+            "reply_trigger": {
+                "description": "回复触发解析",
+                "type": "bool",
+                "hint": "引用含链接的消息并附关键词即可触发解析；与自动解析可同时开启。",
+                "default": false
+            },
+            "keywords": {
+                "description": "手动触发关键词",
+                "type": "list",
+                "hint": "自动解析关闭时用于普通消息；启用“回复触发解析”时也用于引用消息。消息包含任一关键词才触发；每项填写一个关键词。",
+                "items": {
+                    "type": "string"
+                },
+                "default": [
+                    "视频解析",
+                    "解析视频"
+                ]
+            }
+        }
+    },
+    "parse_rate_limit": {
+        "description": "解析频率限制",
+        "type": "object",
+        "hint": "最多解析次数填 0 表示不限制；启用限制时，时间窗必须大于 0。记录会持久化到插件运行时目录并自动裁剪。",
+        "items": {
+            "same_link": {
+                "description": "同链接限制",
+                "type": "object",
+                "hint": "链接会先清洗为标准链接，过滤分享者、来源和追踪参数后再计数。",
+                "items": {
+                    "max_count": {
+                        "description": "最多解析次数",
+                        "type": "int",
+                        "hint": "同一标准链接在时间窗内最多解析的次数；0 = 不限制",
+                        "default": 0
+                    },
+                    "window_seconds": {
+                        "description": "时间窗秒数",
+                        "type": "int",
+                        "hint": "必须大于 0；填 0 会关闭此限制。只统计该秒数内的记录，也用于自动裁剪持久化记录。",
+                        "default": 3600
+                    }
+                }
+            },
+            "same_user": {
+                "description": "同用户限制",
+                "type": "object",
+                "hint": "按消息发送者 ID 计数；一条消息内解析多个链接会分别计数。",
+                "items": {
+                    "max_count": {
+                        "description": "最多解析次数",
+                        "type": "int",
+                        "hint": "同一用户在时间窗内最多解析的链接数；0 = 不限制",
+                        "default": 0
+                    },
+                    "window_seconds": {
+                        "description": "时间窗秒数",
+                        "type": "int",
+                        "hint": "必须大于 0；填 0 会关闭此限制。只统计该秒数内的记录，也用于自动裁剪持久化记录。",
+                        "default": 3600
+                    }
+                }
+            }
+        }
+    },
+    "message": {
+        "description": "消息输出",
+        "type": "object",
+        "hint": "按文本元数据、富媒体、附加内容和发送行为分区；字段开关只影响展示，不隐藏错误与媒体状态。",
+        "items": {
+            "text_metadata": {
+                "description": "文本元数据",
+                "type": "object",
+                "hint": "分别控制解析摘要中的来源字段；关闭字段也不会影响解析、下载或错误提示。",
+                "items": {
+                    "show_title": {
+                        "description": "显示标题",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "show_author": {
+                        "description": "显示作者",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "show_timestamp": {
+                        "description": "显示发布时间",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "show_original_link": {
+                        "description": "显示原始链接",
+                        "type": "bool",
+                        "hint": "关闭后不在解析结果中重复展示原链接。",
+                        "default": true
+                    },
+                    "show_description": {
+                        "description": "显示简介/正文",
+                        "type": "bool",
+                        "hint": "适合正文较长、只希望保留简短摘要的群聊。",
+                        "default": true
+                    },
+                    "quote_user_message": {
+                        "description": "引用用户消息",
+                        "type": "bool",
+                        "hint": "仅普通逐条发送时生效；聚合和 ZIP 不引用。只让文本元数据节点引用对应用户消息，媒体节点不引用。",
+                        "default": false
+                    },
+                    "render_to_image": {
+                        "description": "将文本元数据渲染为图片",
+                        "type": "bool",
+                        "hint": "开启后将基础文本、热评和翻译等所有文本节点合并渲染为一张图片发送；正文与配图穿插发送时，该条内容的文本在原位置分段渲染。渲染失败时自动保留原文本发送。",
+                        "default": false
+                    },
+                    "render_style": {
+                        "description": "图片渲染风格",
+                        "type": "string",
+                        "condition": {
+                            "render_to_image": true
+                        },
+                        "options": [
+                            "清新便签",
+                            "科技感",
+                            "专业严肃",
+                            "温和卡片"
+                        ],
+                        "default": "清新便签"
+                    },
+                    "render_font_family": {
+                        "description": "图片字体",
+                        "type": "string",
+                        "condition": {
+                            "render_to_image": true
+                        },
+                        "options": [
+                            "默认黑体",
+                            "专业宋体",
+                            "清新文楷",
+                            "标题手札",
+                            "科技窄体"
+                        ],
+                        "hint": "默认字体缺失或校验失败时会从独立字体仓库自动补全；ASTRBOT_MEDIA_PARSER_FONT 指定的字体仍优先使用，字体补全不可用时渲染会回退原文本。",
+                        "default": "默认黑体"
+                    },
+                    "render_font_size": {
+                        "description": "图片字体大小",
+                        "type": "int",
+                        "condition": {
+                            "render_to_image": true
+                        },
+                        "hint": "有效范围 16–42，数值越大图片越长。",
+                        "default": 24
+                    },
+                    "render_line_spacing": {
+                        "description": "图片行距",
+                        "type": "float",
+                        "condition": {
+                            "render_to_image": true
+                        },
+                        "hint": "行高相对文字高度的倍数，有效范围 1.0–3.0；数值越大行与行越疏。",
+                        "default": 1.55
+                    },
+                    "render_paragraph_spacing": {
+                        "description": "图片段落间距",
+                        "type": "float",
+                        "condition": {
+                            "render_to_image": true
+                        },
+                        "hint": "段落之间空行的高度相对行高的倍数，有效范围 0–3.0；填 0 时段落之间不留空白。",
+                        "default": 1.0
+                    },
+                    "render_paginate": {
+                        "description": "长图自动分页",
+                        "type": "bool",
+                        "hint": "默认关闭，文本图片和 README 截图保留为整张长图；开启后，高度超过 1800 像素时拆分为多张依次发送。此设置也适用于未开启文本转图片的 README 截图。",
+                        "default": false
+                    },
+                    "render_separate_sections": {
+                        "description": "正文、热评与翻译分区渲染",
+                        "type": "bool",
+                        "condition": {
+                            "render_to_image": true
+                        },
+                        "hint": "开启后每条解析结果的基础文本、热评和翻译分别渲染为独立图片，并在各自原本的位置发送，不再合并为一张；可与长图自动分页同时使用。",
+                        "default": false
+                    }
+                }
+            },
+            "media_display": {
+                "description": "富媒体展示",
+                "type": "object",
+                "items": {
+                    "video_cover_only": {
+                        "description": "视频仅发送封面",
+                        "type": "bool",
+                        "hint": "开启后不发送视频节点；每个视频会改为发送封面图片。解析结果有封面时直接使用封面，否则通过本地流式中继尝试截取视频第一帧；需要可用缓存目录和 ffmpeg，输入受下载大小硬限制。",
+                        "default": false
+                    },
+                    "audio_send_mode": {
+                        "description": "音频发送方式",
+                        "type": "string",
+                        "options": [
+                            "语音",
+                            "文件"
+                        ],
+                        "hint": "语音以聊天语音发送，格式转换可能需要 ffmpeg；文件保留原始音频。两种方式均单独发送，实际限制由聊天平台决定。",
+                        "default": "语音"
+                    },
+                    "interleave_images": {
+                        "description": "正文与配图按原文顺序穿插",
+                        "type": "bool",
+                        "hint": "开启后，能识别配图位置的文章与帖子会按原文顺序交替发送正文段落和配图，需同时显示简介/正文并发送富媒体；其余内容保持原有发送方式。目前支持 AcFun 文章、今日头条、小黑盒帖子、雪球、微信公众号、知乎、百度贴吧、NGA、虎扑、豆瓣、V2EX、稀土掘金、CSDN、博客园与 Steam 社区指南 / 创意工坊。",
+                        "default": false
+                    }
+                }
+            },
+            "hot_comments": {
+                "description": "附加内容：热评",
+                "type": "object",
+                "hint": "仅对输出模式包含文本的支持平台生效；先将条数设为大于 0。优先热门或精选评论，没有此类排序时可展示普通评论或游戏评价。",
+                "items": {
+                    "count": {
+                        "description": "热评条数",
+                        "type": "int",
+                        "hint": "填 0 不获取热评；大于 0 后按平台开关选择来源。实际数量受平台公开范围、分页和风控限制，可能少于设置值。",
+                        "default": 0
+                    },
+                    "bilibili": {
+                        "description": "B站",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "douyin": {
+                        "description": "抖音",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "acfun": {
+                        "description": "AcFun",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "netease": {
+                        "description": "网易云音乐",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "ximalaya": {
+                        "description": "喜马拉雅",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "weibo": {
+                        "description": "微博",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "xiaohongshu": {
+                        "description": "小红书",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "xianyu": {
+                        "description": "闲鱼",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "toutiao": {
+                        "description": "今日头条",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "xiaoheihe": {
+                        "description": "小黑盒",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "xueqiu": {
+                        "description": "雪球",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "zhihu": {
+                        "description": "知乎",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "tieba": {
+                        "description": "百度贴吧",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "nga": {
+                        "description": "NGA",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "hupu": {
+                        "description": "虎扑",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "douban": {
+                        "description": "豆瓣",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "v2ex": {
+                        "description": "V2EX",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "juejin": {
+                        "description": "稀土掘金",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "csdn": {
+                        "description": "CSDN",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "gitee": {
+                        "description": "Gitee",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "tiktok": {
+                        "description": "TikTok",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "youtube": {
+                        "description": "YouTube",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "steam": {
+                        "description": "Steam",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "pixiv": {
+                        "description": "Pixiv",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "gitlab": {
+                        "description": "GitLab",
+                        "type": "bool",
+                        "default": true
+                    }
+                }
+            },
+            "opening": {
+                "description": "发送行为：开场语",
+                "type": "object",
+                "hint": "普通解析仅在存在可发送的富媒体时发送；归档命令会使用单独的打包文本。",
+                "items": {
+                    "enable": {
+                        "description": "发送开场语",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "content": {
+                        "description": "开场语内容",
+                        "type": "string",
+                        "condition": {
+                            "enable": true
+                        },
+                        "default": "流媒体解析bot为您服务 ٩( 'ω' )و"
+                    },
+                    "archive_content": {
+                        "description": "打包自定义文本回复",
+                        "type": "string",
+                        "condition": {
+                            "enable": true
+                        },
+                        "hint": "发送归档命令开始打包时发送；与普通解析共用上面的开场语开关。",
+                        "default": "正在为您打包，请稍候..."
+                    }
+                }
+            },
+            "packing": {
+                "description": "发送行为：消息聚合",
+                "type": "object",
+                "hint": "控制是否使用合并转发消息；ZIP 归档独立于此设置。NapCat 存在兼容问题，请按需启用。",
+                "items": {
+                    "mode": {
+                        "description": "聚合模式",
+                        "type": "string",
+                        "options": [
+                            "不聚合",
+                            "全部聚合",
+                            "按条件聚合"
+                        ],
+                        "default": "不聚合"
+                    },
+                    "zip_command": {
+                        "description": "旧归档命令（自动迁移）",
+                        "type": "string",
+                        "default": "",
+                        "invisible": true
+                    },
+                    "thresholds": {
+                        "description": "按条件聚合阈值",
+                        "type": "object",
+                        "hint": "仅在选择“按条件聚合”时生效；0 = 不按该项触发。",
+                        "condition": {
+                            "mode": "按条件聚合"
+                        },
+                        "items": {
+                            "image_count": {
+                                "description": "图片数量",
+                                "type": "int",
+                                "hint": "图片总数达到该值时聚合；0 = 不按图片数触发",
+                                "default": 3
+                            },
+                            "video_count": {
+                                "description": "视频数量",
+                                "type": "int",
+                                "hint": "视频总数达到该值时聚合；0 = 不按视频数触发",
+                                "default": 2
+                            },
+                            "node_count": {
+                                "description": "节点数量",
+                                "type": "int",
+                                "hint": "文本、图片和视频节点总数达到该值时聚合；0 = 不按节点数触发",
+                                "default": 5
+                            }
+                        }
+                    }
+                }
+            },
+            "archive": {
+                "description": "导出行为：ZIP 归档",
+                "type": "object",
+                "hint": "ZIP 归档与聊天消息聚合相互独立。",
+                "items": {
+                    "command": {
+                        "description": "引用链接归档命令",
+                        "type": "string",
+                        "hint": "引用含可解析链接的消息并单独发送此命令，将解析详情和可下载媒体导出为 ZIP；留空关闭。命令不能与清缓存命令相同。",
+                        "default": ""
+                    },
+                    "max_total_size_mb": {
+                        "description": "归档媒体总大小上限（MB）",
+                        "type": "float",
+                        "hint": "仅在填写归档命令后有作用。所有待归档媒体总大小超过该值时拒绝创建 ZIP；有效范围 1–4096 MB。",
+                        "default": 1024.0
+                    }
+                }
+            }
+        }
+    },
+    "translation": {
+        "description": "文本翻译",
+        "type": "object",
+        "hint": "默认关闭。启用后翻译正文/标题；翻译失败不会影响媒体解析。未启用时下面的翻译参数会被忽略。",
+        "items": {
+            "enable": {
+                "description": "启用翻译",
+                "type": "bool",
+                "default": false
+            },
+            "content_scope": {
+                "description": "翻译范围",
+                "type": "string",
+                "condition": {
+                    "enable": true
+                },
+                "options": [
+                    "仅正文",
+                    "正文和标题"
+                ],
+                "hint": "仅正文只翻译简介/正文；正文和标题会同时翻译标题和简介/正文；热评不翻译。仅启用翻译后生效。",
+                "default": "正文和标题"
+            },
+            "target_language": {
+                "description": "目标语言",
+                "type": "string",
+                "condition": {
+                    "enable": true
+                },
+                "options": [
+                    "简体中文",
+                    "繁体中文",
+                    "English",
+                    "日本語",
+                    "한국어",
+                    "Español",
+                    "Français",
+                    "Deutsch",
+                    "Русский",
+                    "Português"
+                ],
+                "default": "简体中文"
+            },
+            "llm": {
+                "description": "大模型接口",
+                "type": "object",
+                "condition": {
+                    "enable": true
+                },
+                "items": {
+                    "provider_source": {
+                        "description": "大模型提供商",
+                        "type": "string",
+                        "options": [
+                            "AstrBot 内置提供商",
+                            "插件自定义提供商"
+                        ],
+                        "hint": "仅启用翻译后生效。选择 AstrBot 已配置的 LLM，或使用本插件独立配置的 OpenAI 兼容接口或 Ollama。",
+                        "default": "AstrBot 内置提供商"
+                    },
+                    "astrbot_provider": {
+                        "description": "AstrBot 内置提供商",
+                        "type": "object",
+                        "hint": "当“大模型提供商”选择 AstrBot 内置提供商时生效",
+                        "condition": {
+                            "provider_source": "AstrBot 内置提供商"
+                        },
+                        "items": {
+                            "provider_id": {
+                                "description": "选择 AstrBot AI",
+                                "type": "string",
+                                "hint": "点击按钮选择 AstrBot 中已配置的 LLM；留空时尝试使用当前会话正在使用的 LLM",
+                                "_special": "select_provider",
+                                "default": ""
+                            }
+                        }
+                    },
+                    "custom_provider": {
+                        "description": "自定义提供商",
+                        "type": "object",
+                        "hint": "当“大模型提供商”选择插件自定义提供商时生效",
+                        "condition": {
+                            "provider_source": "插件自定义提供商"
+                        },
+                        "items": {
+                            "provider": {
+                                "description": "厂商/接口类型",
+                                "type": "string",
+                                "options": [
+                                    "自定义 OpenAI 兼容",
+                                    "OpenAI",
+                                    "DeepSeek",
+                                    "Moonshot / Kimi",
+                                    "阿里云百炼 / 通义千问",
+                                    "智谱 AI / GLM",
+                                    "火山引擎方舟 / 豆包",
+                                    "OpenRouter",
+                                    "SiliconFlow",
+                                    "Ollama"
+                                ],
+                                "default": "自定义 OpenAI 兼容"
+                            },
+                            "base_url": {
+                                "description": "Base URL",
+                                "type": "string",
+                                "hint": "预设厂商可留空；自定义 OpenAI 兼容、中转或私有部署请填写对应接口地址。仅选择“插件自定义提供商”时生效。",
+                                "default": ""
+                            },
+                            "api_key": {
+                                "description": "API Key",
+                                "type": "string",
+                                "hint": "仅本地使用，不会写入运行日志；仅选择“插件自定义提供商”时生效。",
+                                "default": ""
+                            },
+                            "model": {
+                                "description": "模型",
+                                "type": "string",
+                                "hint": "填写所选厂商的模型名，例如 deepseek-chat、qwen-plus、gpt-4o-mini 或本地 Ollama 模型；切换厂商不会自动修改此值。",
+                                "default": "gpt-5.5"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "download": {
+        "description": "下载与缓存",
+        "type": "object",
+        "hint": "控制下载并发、大小限制和本地缓存。非 Docker 环境使用 AstrBot 插件数据目录。",
+        "items": {
+            "max_concurrent": {
+                "description": "最大并发下载数",
+                "type": "int",
+                "hint": "建议 3–5；过大可能增加带宽和磁盘压力。",
+                "default": 5
+            },
+            "cache_dir": {
+                "description": "Docker 共享缓存目录（可选）",
+                "type": "string",
+                "hint": "仅 Docker 环境使用；填写容器内的共享挂载目录。非 Docker 请留空，自动使用 AstrBot 插件数据目录。",
+                "default": ""
+            },
+            "max_video_size_mb": {
+                "description": "视频大小上限（MB）",
+                "type": "float",
+                "hint": "普通视频先预检；DASH/M3U8 下载后按实际大小兜底；填 0 不限制。",
+                "default": 1000.0
+            },
+            "max_audio_size_mb": {
+                "description": "音频大小上限（MB）",
+                "type": "float",
+                "hint": "音频下载前和下载过程中均检查；默认 30 MB，填 0 仅保留 128 MB 安全上限。聊天平台可能有更小的大小或时长限制。",
+                "default": 30.0
+            },
+            "large_video_threshold_mb": {
+                "description": "大视频阈值（MB）",
+                "type": "float",
+                "hint": "超过阈值的普通视频单独发送，不放入消息集合；有效上限 100 MB，填 0 不限制。",
+                "default": 100.0
+            }
+        }
+    },
+    "permissions": {
+        "description": "权限控制",
+        "type": "object",
+        "hint": "优先级：管理员 > 个人白名单 > 个人黑名单 > 群组白名单 > 群组黑名单。名单每项填写一个 ID。",
+        "items": {
+            "admin_id": {
+                "description": "管理员 ID",
+                "type": "string",
+                "hint": "最高权限（白名单限制对管理员豁免），接收私聊通知并自动加入白名单。",
+                "default": ""
+            },
+            "whitelist": {
+                "description": "白名单",
+                "type": "object",
+                "hint": "启用但不配置名单会禁止所有非管理员用户；用户和群组字段每项填写一个 ID。",
+                "items": {
+                    "enable": {
+                        "description": "启用",
+                        "type": "bool",
+                        "default": false
+                    },
+                    "user": {
+                        "description": "用户",
+                        "type": "list",
+                        "hint": "用户 ID，每项一个字符串。",
+                        "condition": {
+                            "enable": true
+                        },
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": []
+                    },
+                    "group": {
+                        "description": "群组",
+                        "type": "list",
+                        "hint": "群组 ID，每项一个字符串。",
+                        "condition": {
+                            "enable": true
+                        },
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": []
+                    }
+                }
+            },
+            "blacklist": {
+                "description": "黑名单",
+                "type": "object",
+                "hint": "用户和群组字段每项填写一个 ID。",
+                "items": {
+                    "enable": {
+                        "description": "启用",
+                        "type": "bool",
+                        "default": false
+                    },
+                    "user": {
+                        "description": "用户",
+                        "type": "list",
+                        "hint": "用户 ID，每项一个字符串。",
+                        "condition": {
+                            "enable": true
+                        },
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": []
+                    },
+                    "group": {
+                        "description": "群组",
+                        "type": "list",
+                        "hint": "群组 ID，每项一个字符串。",
+                        "condition": {
+                            "enable": true
+                        },
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": []
+                    }
+                }
+            }
+        }
+    },
+    "bilibili_enhanced": {
+        "description": "B站增强",
+        "type": "object",
+        "hint": "启用 Cookie 后才会使用 Cookie、画质和管理员协助设置；需要可用的媒体缓存目录。",
+        "items": {
+            "use_cookie": {
+                "description": "携带 Cookie 解析",
+                "type": "bool",
+                "hint": "缓存目录可用时，将 DASH 视频下载到缓存目录后发送。",
+                "default": false
+            },
+            "cookie": {
+                "description": "Cookie",
+                "type": "string",
+                "hint": "仅本地使用，不要公开分享；“携带 Cookie 解析”关闭时忽略。",
+                "condition": {
+                    "use_cookie": true
+                },
+                "default": ""
+            },
+            "max_quality": {
+                "description": "最高画质",
+                "type": "string",
+                "condition": {
+                    "use_cookie": true
+                },
+                "options": [
+                    "不限制",
+                    "4K",
+                    "1080P60",
+                    "1080P+",
+                    "1080P",
+                    "720P",
+                    "480P",
+                    "360P"
+                ],
+                "hint": "实际画质取决于账号权限和视频源",
+                "default": "不限制"
+            },
+            "admin_assist": {
+                "description": "管理员协助登录",
+                "type": "object",
+                "hint": "仅在“携带 Cookie 解析”开启且媒体缓存可用时生效；Cookie 失效时私聊管理员协助重新登录。",
+                "condition": {
+                    "use_cookie": true
+                },
+                "items": {
+                    "enable": {
+                        "description": "启用",
+                        "type": "bool",
+                        "default": false
+                    },
+                    "reply_timeout_minutes": {
+                        "description": "回复超时（分钟）",
+                        "type": "int",
+                        "hint": "等待管理员回复的最长时间，必须大于 0。",
+                        "condition": {
+                            "enable": true
+                        },
+                        "default": 1440
+                    },
+                    "request_cooldown_minutes": {
+                        "description": "请求冷却（分钟）",
+                        "type": "int",
+                        "hint": "自动检测再次发起协助登录前的间隔，必须大于 0；管理员主动更新指令不受此冷却限制。",
+                        "condition": {
+                            "enable": true
+                        },
+                        "default": 1440
+                    },
+                    "command": {
+                        "description": "主动更新 Cookie 指令",
+                        "type": "string",
+                        "hint": "管理员私聊发送此指令即可直接发送 B 站登录二维码；留空可关闭指令入口。",
+                        "condition": {
+                            "enable": true
+                        },
+                        "default": "B站更新Cookie"
+                    }
+                }
+            }
+        }
+    },
+    "wechat": {
+        "description": "微信设置",
+        "type": "object",
+        "hint": "支持公众号文章及视频号分享链接。公众号图文无需 Cookie；图片和视频号视频下载需要可用缓存目录。",
+        "items": {
+            "yuanbao_cookie": {
+                "description": "腾讯元宝 Cookie",
+                "type": "string",
+                "hint": "仅供视频号使用，公众号无需填写。登录 yuanbao.tencent.com 后，从浏览器开发者工具 Network 中复制该站点请求的完整 Cookie 头；用于视频号短链解析，失效后需手动更新。已带有效 token 和 eid 的预览长链可不填写。",
+                "default": ""
+            }
+        }
+    },
+    "steam": {
+        "description": "Steam 设置",
+        "type": "object",
+        "hint": "Steam 游戏页默认使用 Steam 官方接口；开启后改用小黑盒完整游戏路径，可获得更多评分、在线人数和统计信息。指南与创意工坊页面不受此开关影响。",
+        "items": {
+            "use_xiaoheihe": {
+                "description": "使用小黑盒路径解析 Steam 游戏页",
+                "type": "bool",
+                "default": false
+            }
+        }
+    },
+    "pixiv": {
+        "description": "Pixiv 设置",
+        "type": "object",
+        "hint": "Pixiv 解析需要 Cookie 才能获取原图；无 Cookie 也能解析但可能仅返回缩略图。",
+        "items": {
+            "cookie": {
+                "description": "Pixiv Cookie",
+                "type": "string",
+                "hint": "包含 PHPSESSID 的完整 Cookie 字符串；仅本地使用，不要公开分享。登录 pixiv.net 后从浏览器开发者工具复制。",
+                "default": ""
+            }
+        }
+    },
+    "proxy": {
+        "description": "代理设置",
+        "type": "object",
+        "hint": "先填写代理地址；下面各项开关只有在地址非空时才会生效。",
+        "items": {
+            "address": {
+                "description": "代理地址",
+                "type": "string",
+                "hint": "格式：http://host:port 或 https://host:port",
+                "default": ""
+            },
+            "font": {
+                "description": "字体资源下载使用代理",
+                "type": "bool",
+                "hint": "需要先填写“代理地址”；用于补全文本图片渲染所需的默认字体。",
+                "default": false
+            },
+            "xiaoheihe_video": {
+                "description": "直接解析小黑盒的视频下载使用代理",
+                "type": "bool",
+                "hint": "需要先填写“代理地址”；Steam 的小黑盒路径由“Steam 代理”中的开关控制。",
+                "default": true
+            },
+            "tiktok": {
+                "description": "TikTok 解析与下载使用代理",
+                "type": "bool",
+                "hint": "需要先填写“代理地址”。",
+                "default": false
+            },
+            "youtube": {
+                "description": "YouTube 解析与视频下载使用代理",
+                "type": "bool",
+                "hint": "需要先填写“代理地址”；YouTube 在部分网络环境下必须使用代理。",
+                "default": true
+            },
+            "steam": {
+                "description": "Steam 代理",
+                "type": "object",
+                "hint": "需要先填写“代理地址”；解析开关控制 Steam 商店、社区页面或小黑盒详情接口请求，图片和视频开关分别控制媒体下载。",
+                "items": {
+                    "parse": {
+                        "description": "解析",
+                        "type": "bool",
+                        "default": false
+                    },
+                    "image": {
+                        "description": "图片下载",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "video": {
+                        "description": "视频下载",
+                        "type": "bool",
+                        "default": true
+                    }
+                }
+            },
+            "twitter": {
+                "description": "Twitter 代理",
+                "type": "object",
+                "hint": "需要先填写“代理地址”。",
+                "items": {
+                    "parse": {
+                        "description": "解析",
+                        "type": "bool",
+                        "default": false
+                    },
+                    "image": {
+                        "description": "图片下载",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "video": {
+                        "description": "视频下载",
+                        "type": "bool",
+                        "default": true
+                    }
+                }
+            },
+            "pixiv": {
+                "description": "Pixiv 解析与图片下载使用代理",
+                "type": "bool",
+                "hint": "需要先填写“代理地址”。",
+                "default": false
+            },
+            "github": {
+                "description": "GitHub 解析使用代理",
+                "type": "bool",
+                "hint": "需要先填写“代理地址”；用于获取公开仓库信息与截取 README。",
+                "default": false
+            }
+        }
+    },
+    "media_relay": {
+        "description": "媒体中转",
+        "type": "object",
+        "hint": "仅增强已缓存到本地文件的媒体，不会强制下载所有媒体；关闭后下面的地址和有效期会被忽略。",
+        "items": {
+            "enable": {
+                "description": "启用",
+                "type": "bool",
+                "hint": "由 AstrBot HTTP 服务中转缓存中的本地媒体文件。",
+                "default": false
+            },
+            "callback_url": {
+                "description": "AstrBot 回调地址",
+                "type": "string",
+                "hint": "留空时使用 AstrBot 全局 callback_api_base；否则填写消息平台可达的地址，如 http://host:6185。跨服务器时需公网可达。",
+                "condition": {
+                    "enable": true
+                },
+                "default": ""
+            },
+            "ttl": {
+                "description": "中转缓存有效期（秒）",
+                "type": "int",
+                "hint": "最小 30 秒；到期后链接失效并清理缓存，建议至少 60 秒。",
+                "condition": {
+                    "enable": true
+                },
+                "default": 300
+            }
+        }
+    },
+    "admin": {
+        "description": "管理与调试",
+        "type": "object",
+        "items": {
+            "clean_cache_keyword": {
+                "description": "清理缓存关键词",
+                "type": "string",
+                "hint": "管理员私聊发送此关键词清除所有媒体缓存",
+                "default": "清理媒体"
+            },
+            "debug": {
+                "description": "调试模式",
+                "type": "bool",
+                "hint": "输出完整工作流详细日志",
+                "default": false
+            }
+        }
+    }
+}

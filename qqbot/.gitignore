@@ -1,0 +1,10 @@
+runtime/
+*.log
+lab3/
+lab_doc/
+node.zip
+workspace/
+media-parser/.venv/
+media-parser/test-cache/
+media-parser/__pycache__/
+media-parser/vendor/**/__pycache__/

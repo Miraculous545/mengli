@@ -1,0 +1,38 @@
+{
+  "id": "mengli",
+  "name": "梦璃",
+  "version": "1.5.5",
+  "description": "梦璃 QQ 群日志与群友记忆面板",
+  "author": "星空社技术组",
+  "mainClass": "cn.edu.swust.mc.skin.plugins.mengli.MengliPlugin",
+  "client": "client.mjs",
+  "enabledByDefault": true,
+  "nav": {
+    "title": "绑定QQ",
+    "icon": "link",
+    "order": 18
+  },
+  "adminNav": [
+    {
+      "title": "梦璃日志",
+      "category": "社团服务",
+      "icon": "sparkles",
+      "path": "#/plugin/mengli?tab=logs",
+      "order": 20
+    },
+    {
+      "title": "梦璃记忆",
+      "category": "社团服务",
+      "icon": "users",
+      "path": "#/plugin/mengli?tab=memory",
+      "order": 21
+    },
+    {
+      "title": "梦璃设置",
+      "category": "社团服务",
+      "icon": "settings",
+      "path": "#/plugin/mengli?tab=settings",
+      "order": 22
+    }
+  ]
+}
