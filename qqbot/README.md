@@ -37,6 +37,7 @@ Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'qqbot-agen
 - 私聊直接发消息。
 - 群聊需要 @ 机器人。
 - 每个群/每个私聊各自维护上下文，互不影响。
+- 单个 ZCode 会话上下文超过 5 万 tokens 或复用 30 轮后会自动重开，避免越聊越慢；群友记忆和最近聊天仍会注入，不会因为重开而“失忆”。
 - 群聊回复可能被拆成多条（单条约 1400 字），最多 5 条。
 
 内置指令：
@@ -143,6 +144,8 @@ media-parser\.venv\Scripts\python.exe media-parser\parse_media.py --list-platfor
 | `QQBOT_ALLOW_GROUPS` | 空=全部 | 允许的群 openid，逗号分隔 |
 | `QQBOT_MAX_CONCURRENCY` | `2` | 同时运行的 agent 数 |
 | `QQBOT_MAX_QUEUE` | `5` | 单会话排队上限，超出会提示稍后再发 |
+| `QQBOT_SESSION_MAX_CONTEXT` | `50000` | 单个 ZCode 会话上下文超过该 token 数后自动重开，避免越聊越慢 |
+| `QQBOT_SESSION_MAX_TURNS` | `30` | 单个 ZCode 会话最多复用多少轮后自动重开 |
 | `QQBOT_LOG_CONTENT` | `0` | 设 `1` 把消息正文写日志，默认不写 |
 | `QQBOT_SANDBOX` | `0` | 设 `1` 走沙箱网关 |
 | `ZCODE_CLI` | ZCode 安装目录下的 `zcode.cjs` | 自定义 CLI 路径 |

@@ -43,6 +43,9 @@ const AGENT_MODE = (process.env.QQBOT_AGENT_MODE || 'guarded').trim()
 const AGENT_TIMEOUT_MS = numberEnv('QQBOT_AGENT_TIMEOUT_MS', 120000)
 const MAX_CONCURRENCY = numberEnv('QQBOT_MAX_CONCURRENCY', 2)
 const MAX_QUEUE = numberEnv('QQBOT_MAX_QUEUE', 5)
+// ZCode 会话会持续累积历史，上下文越大首 token 越慢；超过阈值后重开会话，靠桥接注入的记忆保持连贯。
+const SESSION_MAX_CONTEXT = numberEnv('QQBOT_SESSION_MAX_CONTEXT', 50000)
+const SESSION_MAX_TURNS = numberEnv('QQBOT_SESSION_MAX_TURNS', 30)
 const REPLY_CHUNK = numberEnv('QQBOT_REPLY_CHUNK', 1400)
 const MAX_CHUNKS = numberEnv('QQBOT_MAX_CHUNKS', 5)
 const LOG_CONTENT = /^(1|true|yes)$/i.test(process.env.QQBOT_LOG_CONTENT || '')
@@ -648,6 +651,15 @@ function loadSessions() {
 }
 
 const sessions = loadSessions()
+
+function sessionRotationReason(entry) {
+  if (!entry?.sessionId) return ''
+  const contextUsed = Number(entry.contextUsed) || 0
+  if (contextUsed >= SESSION_MAX_CONTEXT) return `上下文 ${contextUsed} tokens`
+  const turnCount = Number(entry.turnCount) || 0
+  if (turnCount >= SESSION_MAX_TURNS) return `已进行 ${turnCount} 轮`
+  return ''
+}
 
 function saveSessions() {
   const payload = {
@@ -1976,6 +1988,9 @@ function runAgentSession({ prompt, sessionId, onSpawn }) {
         response: parsed.response,
         sessionId: parsed.sessionId || sessionId || null,
         usage: parsed.usage || null,
+        contextUsed: Number(parsed.projection?.contextUsed) || 0,
+        contextWindow: Number(parsed.projection?.contextWindow) || 0,
+        turnCount: Number(parsed.projection?.turnCount) || 0,
       })
     })
   })
@@ -2484,14 +2499,21 @@ function buildPrompt(message, text, media = null, memory = null, binding = null)
 async function runConversationTurn(message, text, job, media = null) {
   const key = `${message.kind}:${message.peerId}`
   const previous = sessions.get(key)
+  const rotationReason = sessionRotationReason(previous)
+  if (rotationReason) {
+    sessions.delete(key)
+    saveSessions()
+    log(`会话自动轮换：${rotationReason} key=${shortId(key)}`)
+  }
+  const resumeSessionId = rotationReason ? null : (previous?.sessionId || null)
   const binding = await getMengliBinding(message)
   const memory = ensureMemoryDisplayName(getMessageMemory(message), binding)
   const memberId = memory?.member?.id || null
   await prepareInboundContext(message)
   const prompt = buildPrompt(message, text, media, memory, binding)
   const started = Date.now()
-  log(`agent 开始 key=${shortId(key)} sender=${shortId(message.userId)} session=${previous?.sessionId || 'new'}`)
-  recordEvent('agent', { phase: 'start', key, sessionId: previous?.sessionId || null })
+  log(`agent 开始 key=${shortId(key)} sender=${shortId(message.userId)} session=${resumeSessionId || 'new'}`)
+  recordEvent('agent', { phase: 'start', key, sessionId: resumeSessionId })
 
   await acquireSlot()
   try {
@@ -2501,14 +2523,14 @@ async function runConversationTurn(message, text, job, media = null) {
       try {
         result = await runAgentSession({
           prompt,
-          sessionId: previous?.sessionId || null,
+          sessionId: resumeSessionId,
           onSpawn: child => {
             job.child = child
           },
         })
       } catch (error) {
         // 会话不存在/无法恢复时，丢掉映射重开一轮。
-        if (previous?.sessionId && /session|会话|resume|not found|不存在/i.test(String(error.message))) {
+        if (resumeSessionId && /session|会话|resume|not found|不存在/i.test(String(error.message))) {
           log(`恢复会话失败，重开：${String(error.message).slice(0, 200)}`)
           sessions.delete(key)
           saveSessions()
@@ -2525,7 +2547,13 @@ async function runConversationTurn(message, text, job, media = null) {
       }
 
       if (result.sessionId && !SIMULATE) {
-        sessions.set(key, { sessionId: result.sessionId, updatedAt: new Date().toISOString() })
+        sessions.set(key, {
+          sessionId: result.sessionId,
+          updatedAt: new Date().toISOString(),
+          contextUsed: result.contextUsed,
+          contextWindow: result.contextWindow,
+          turnCount: result.turnCount || (rotationReason ? 1 : Number(previous?.turnCount || 0) + 1),
+        })
         saveSessions()
       }
       const markerResult = stripNoReplyMarker(result.response)
@@ -2536,7 +2564,7 @@ async function runConversationTurn(message, text, job, media = null) {
         log(`检测到内部标记泄漏，已清除会话 key=${shortId(key)}`)
       }
       if (memberId) memoryStore.recordReplyCompleted(memberId, true)
-      log(`agent 完成 key=${shortId(key)} ${Date.now() - started}ms chars=${result.response.length}${noReply ? '（模型判断不回复）' : ''}`)
+      log(`agent 完成 key=${shortId(key)} ${Date.now() - started}ms chars=${result.response.length} ctx=${result.contextUsed || 0}/${result.contextWindow || 0}${noReply ? '（模型判断不回复）' : ''}`)
       const durationMs = Date.now() - started
       recordEvent('agent', { phase: 'done', key, durationMs, chars: result.response.length, noReply })
       if (noReply) {
@@ -3707,6 +3735,19 @@ if (personaGuardTestIndex >= 0) {
       { siteNickname: '姐姐', siteUsername: 'jiejie' },
     ).split('\n').slice(0, 2).join(' / '),
   }))
+  process.exit(0)
+}
+
+const sessionRotationTestIndex = process.argv.indexOf('--test-session-rotation')
+if (sessionRotationTestIndex >= 0) {
+  for (const sample of [
+    { name: '超上下文', entry: { sessionId: 'sess_x', contextUsed: SESSION_MAX_CONTEXT, turnCount: 2 } },
+    { name: '超轮数', entry: { sessionId: 'sess_x', contextUsed: 1000, turnCount: SESSION_MAX_TURNS } },
+    { name: '正常复用', entry: { sessionId: 'sess_x', contextUsed: 1000, turnCount: 2 } },
+    { name: '没有会话', entry: null },
+  ]) {
+    console.log(JSON.stringify({ sample: sample.name, reason: sessionRotationReason(sample.entry) }))
+  }
   process.exit(0)
 }
 
