@@ -9,9 +9,12 @@ $logFile = Join-Path $runtime 'watchdog.log'
 $mutex = New-Object System.Threading.Mutex($false, 'Local\QQbotMengliWatchdog')
 if (-not $mutex.WaitOne(0)) { exit 0 }
 
-$env:QQBOT_APPID = [Environment]::GetEnvironmentVariable('QQBOT_APPID', 'User')
-$env:QQBOT_SECRET = [Environment]::GetEnvironmentVariable('QQBOT_SECRET', 'User')
-$env:QQBOT_MEDIA_BILI_MAX_QN = [Environment]::GetEnvironmentVariable('QQBOT_MEDIA_BILI_MAX_QN', 'User')
+# 开机自启时 Explorer 的用户环境可能还是旧快照，桥接以注册表里的当前用户环境为准。
+foreach ($entry in [Environment]::GetEnvironmentVariables('User').GetEnumerator()) {
+  if ($entry.Key -match '^(QQBOT|SWUSTMC|MENGLI)_') {
+    [Environment]::SetEnvironmentVariable($entry.Key, [string]$entry.Value, 'Process')
+  }
+}
 
 $node = 'C:\Users\Administrator\tools\node-v24.22.0-win-x64\node.exe'
 if (-not (Test-Path $node)) {
