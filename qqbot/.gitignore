@@ -8,3 +8,4 @@ media-parser/.venv/
 media-parser/test-cache/
 media-parser/__pycache__/
 media-parser/vendor/**/__pycache__/
+profile-card/__pycache__/

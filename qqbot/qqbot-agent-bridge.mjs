@@ -1107,12 +1107,19 @@ async function getOnlineNamesByServer(status) {
   return namesByServer
 }
 
-function formatServerPlayerLine(names, onlineCount, limit) {
+function formatServerPlayers(names, onlineCount, limit) {
   const max = Math.max(1, Math.min(20, Number(limit) || 5))
   const shown = names.slice(0, max)
   const total = Math.max(Number(onlineCount) || 0, names.length)
   const suffix = total > shown.length ? ` 等 ${total} 人` : ''
-  return `  在线玩家：${shown.join('、')}${suffix}`
+  return `· 玩家：${shown.join('、')}${suffix}`
+}
+
+function formatMcStatusTime(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = number => String(number).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 
@@ -2965,27 +2972,29 @@ async function handleCommand(message, text) {
       const status = await getMcServerStatus()
       const namesByServer = await getOnlineNamesByServer(status)
       const playerLimit = Math.max(1, Math.min(20, Number(settings.mcPlayerLimit) || 5))
-      const lines = ['皮肤站 MC 服务器状态：']
+      const lines = ['MC 服务器状态']
       if (!status.servers.length) {
-        lines.push('还没有登记服务器。')
+        lines.push('', '还没有登记服务器。')
       } else {
         for (const server of status.servers) {
-          const state = server.online
-            ? `在线 ${server.onlineCount}/${server.maxPlayers || '—'} 人`
-            : '离线'
-          lines.push(`- ${server.name}：${state}${server.address ? `（${server.address}）` : ''}`)
+          const onlineCount = Math.max(0, Number(server.onlineCount) || 0)
+          const maxPlayers = Math.max(0, Number(server.maxPlayers) || 0)
+          const onlineText = server.online
+            ? (maxPlayers > 0 ? `在线：${onlineCount}/${maxPlayers} 人` : `在线：${onlineCount} 人`)
+            : '状态：离线'
+          lines.push('', server.name || '未命名服务器', `· ${onlineText}`)
+          if (server.address) lines.push(`· 地址：${server.address}`)
           if (!server.online) continue
           const names = namesByServer.get(String(server.id)) || []
           if (names.length) {
-            lines.push(formatServerPlayerLine(names, server.onlineCount, playerLimit))
-          } else if (Number(server.onlineCount) > 0) {
-            lines.push('  在线玩家：暂无名单（服务器未上报）')
+            lines.push(formatServerPlayers(names, onlineCount, playerLimit))
+          } else if (onlineCount > 0) {
+            lines.push('· 玩家：暂无名单')
           }
         }
       }
-      if (status.checkedAt) {
-        lines.push(`数据时间：${new Date(status.checkedAt).toLocaleString('zh-CN', { hour12: false })}`)
-      }
+      const checkedAt = formatMcStatusTime(status.checkedAt)
+      if (checkedAt) lines.push('', `数据来自皮肤站 · 更新 ${checkedAt}`)
       await sendText(message, lines.join('\n'), { maxChunks: 3 })
     } catch (error) {
       log(`读取皮肤站服务器状态失败：${describeError(error).slice(0, 200)}`)
@@ -3364,7 +3373,7 @@ async function handleCommand(message, text) {
       '/bot-ping 延迟检测',
       '/bot-status 会话状态',
       '/persona 查看人设加载状态',
-      '/在线 查看皮肤站 MC 服务器状态',
+      '/服务器 查看皮肤站 MC 服务器状态（/在线 同义）',
       '/我的在线时长 查看绑定账号的累计在线/挂机时长',
       '/皮肤 <玩家名> 查询皮肤站角色和皮肤',
       '/我的皮肤 查看绑定账号当前角色并发送皮肤/披风图片',
