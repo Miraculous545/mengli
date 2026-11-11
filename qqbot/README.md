@@ -53,6 +53,7 @@ Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'qqbot-agen
 | `/记住 <内容>` | 让梦璃记住当前群友的一件事 |
 | `/是谁 <名字>` | 查当前群里某位群友的画像 |
 | `/我的记忆` | 查看梦璃记住的当前群友画像/备注 |
+| `/我的画像` | 用梦璃记忆生成当前用户的画像图片卡片 |
 | `/忘记我` | 清除该 QQ 用户的全局记忆（所有群和私聊） |
 | `/记忆` | 记忆开关、保留天数与库统计 |
 | `/整理记忆` | 让模型重新整理当前群友画像 |
@@ -68,6 +69,7 @@ Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'qqbot-agen
 - QQ 官方群消息里的 @ 可能只带 openid，部分群事件甚至只留下空格占位、不返回被 @ 用户的信息；桥接能解析时用昵称，解析不到时用“你 @ 的那位”指代。当前应用没有群成员信息接口权限时（接口返回 `11253 应用无接口访问权限`），无法自动获取最新群名片；要完整支持 @ 提及和群名片，需要换 OneBot/NapCat 等协议，或让用户用普通文字写名字。
 - 问“我是谁/你认识我吗/说说我”或“谁谁谁是谁”时，会先叫出昵称，再结合画像摘要、人格特点、互动风格、标签和最近发言描述，并轻微参考对方的说话语气；不会只说“不知道/只是群友”。
 - `/是谁 奈璟柠` 可以直接查当前群里该群友的画像。
+- `/我的画像` 会把同一份画像渲染成 PNG 卡片：摘要/人格作为“人格画像”，加上互动风格、标签和互动/触发/完成回复统计。卡片缓存在 `runtime/profile-cards/`，7 天自动清理；渲染脚本在 `profile-card/render_profile_card.py`，依赖 Pillow 和中文字体。
 - 注意：官方 QQ 群事件只提供群昵称和成员 openid，不提供真实 QQ 号。绑定用户的称呼以皮肤站昵称为准；QQ 号只用于识别，不会作为称呼输出。
 - `/记住 喜欢红石` 记手动备注；`/忘记我` 删除该 QQ 用户的全局记忆（包括所有群和私聊）。
 - `/整理记忆` 会用模型把发言沉淀成摘要/人格/互动风格/标签/事实；也可以在监控页设置自动画像（每 N 条触发一次，默认关闭）。
@@ -127,6 +129,8 @@ media-parser\.venv\Scripts\python.exe media-parser\parse_media.py --list-platfor
 | `QQBOT_MEDIA_TIMEOUT_MS` | `180000` | 单次解析/下载超时 |
 | `QQBOT_MEDIA_PYTHON` | `media-parser/.venv/Scripts/python.exe` | Python 解释器路径 |
 | `QQBOT_MEDIA_SCRIPT` | `media-parser/parse_media.py` | 解析 CLI 路径 |
+| `QQBOT_PROFILE_PYTHON` | 同 `QQBOT_MEDIA_PYTHON` | 画像卡片渲染 Python，需要 Pillow |
+| `QQBOT_PROFILE_FONT` / `QQBOT_PROFILE_FONT_BOLD` | 自动查找 | 画像卡片中文字体；Linux 建议装 Noto CJK 或指定字体文件 |
 | `QQBOT_MEMORY_DB` | `runtime/memory.db` | 群友记忆 SQLite 文件 |
 | `QQBOT_EVENT_LOG` | `1` | 是否写 `runtime/events.jsonl` 供监控面板使用 |
 | `QQBOT_MONITOR_PORT` | `8765` | 监控面板端口 |

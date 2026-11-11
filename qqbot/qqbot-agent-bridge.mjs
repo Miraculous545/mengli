@@ -61,6 +61,10 @@ mkdirSync(join(ROOT, 'persona'), { recursive: true })
 const MEDIA_SCRIPT = process.env.QQBOT_MEDIA_SCRIPT || join(ROOT, 'media-parser', 'parse_media.py')
 const MEDIA_PYTHON = process.env.QQBOT_MEDIA_PYTHON || join(ROOT, 'media-parser', '.venv', 'Scripts', 'python.exe')
 const MEDIA_CACHE_DIR = process.env.QQBOT_MEDIA_CACHE || join(RUNTIME_DIR, 'media-cache')
+const PROFILE_CARD_SCRIPT = join(ROOT, 'profile-card', 'render_profile_card.py')
+const PROFILE_CARD_DIR = join(RUNTIME_DIR, 'profile-cards')
+const PROFILE_CARD_VERSION = 3
+const PROFILE_PYTHON = process.env.QQBOT_PROFILE_PYTHON || MEDIA_PYTHON
 const INBOUND_MEDIA_DIR = join(RUNTIME_DIR, 'inbound-media')
 const INBOUND_MAX_IMAGES = numberEnv('QQBOT_INBOUND_MAX_IMAGES', 4)
 const INBOUND_MAX_BYTES = numberEnv('QQBOT_INBOUND_MAX_IMAGE_MB', 10) * 1024 * 1024
@@ -861,6 +865,118 @@ async function sendSkinImages(message, player) {
   } catch (error) {
     log(`发送皮肤图片失败：${describeError(error).slice(0, 200)}`)
     return { sent: 0, failed: Math.max(1, attempted), skipped: 0, attempted }
+  }
+}
+
+function profileCardPython() {
+  if (PROFILE_PYTHON && existsSync(PROFILE_PYTHON)) return PROFILE_PYTHON
+  return process.platform === 'win32' ? 'python' : 'python3'
+}
+
+function cleanupProfileCards() {
+  try {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
+    for (const name of readdirSync(PROFILE_CARD_DIR)) {
+      if (!name.endsWith('.png')) continue
+      const file = join(PROFILE_CARD_DIR, name)
+      try {
+        if (statSync(file).mtimeMs < cutoff) unlinkSync(file)
+      } catch {
+        // 单张清理失败不影响生成
+      }
+    }
+  } catch {
+    // 缓存目录还不存在时忽略
+  }
+}
+
+function runProfileCardRenderer(payload, output) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(profileCardPython(), [PROFILE_CARD_SCRIPT, output], {
+      cwd: ROOT,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    const finish = (fn, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      fn(value)
+    }
+    const timer = setTimeout(() => {
+      void killTree(child.pid)
+      finish(reject, new Error('画像卡片渲染超时'))
+    }, 30000)
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', chunk => { stdout += chunk })
+    child.stderr.on('data', chunk => { stderr += chunk })
+    child.on('error', error => finish(reject, error))
+    child.on('close', code => {
+      if (code !== 0) {
+        finish(reject, new Error(`画像卡片渲染失败（退出码 ${code}）：${(stderr || stdout).trim().slice(-600)}`))
+        return
+      }
+      if (!existsSync(output) || statSync(output).size === 0) {
+        finish(reject, new Error(`画像卡片没有生成文件：${(stderr || stdout).trim().slice(-600)}`))
+        return
+      }
+      finish(resolve, { stdout, stderr })
+    })
+    child.stdin.on('error', () => {
+      // 子进程提前退出时 close 会给出真实错误
+    })
+    child.stdin.end(JSON.stringify(payload), 'utf8')
+  })
+}
+
+function profileCardPayload(message, member, binding) {
+  return {
+    name: safeUserDisplayName(member, binding),
+    scope: message.kind === 'group' ? '本群' : '本次对话',
+    summary: member.summary || '',
+    personality: member.personality || '',
+    interactionStyle: member.interactionStyle || '',
+    tags: member.tags || [],
+    stats: {
+      messages: member.observedMessageCount || 0,
+      triggers: member.replyTriggeredCount || 0,
+      replies: member.replyCompletedCount || 0,
+    },
+  }
+}
+
+function profileFallbackText(member, binding) {
+  const name = safeUserDisplayName(member, binding)
+  const lines = [`${name}的画像：`]
+  if (member.summary) lines.push(`摘要：${member.summary}`)
+  if (member.personality) lines.push(`人格：${member.personality}`)
+  if (member.interactionStyle) lines.push(`互动风格：${member.interactionStyle}`)
+  if (member.tags?.length) lines.push(`标签：${member.tags.join('、')}`)
+  lines.push(`互动消息 ${member.observedMessageCount || 0} · 对话触发 ${member.replyTriggeredCount || 0} · 完成回复 ${member.replyCompletedCount || 0}`)
+  return lines.join('\n')
+}
+
+async function generateProfileCard(message, member, binding) {
+  const payload = profileCardPayload(message, member, binding)
+  const hash = createHash('sha1')
+    .update(`${PROFILE_CARD_VERSION}:${JSON.stringify(payload)}`)
+    .digest('hex')
+    .slice(0, 12)
+  mkdirSync(PROFILE_CARD_DIR, { recursive: true })
+  cleanupProfileCards()
+  const file = join(PROFILE_CARD_DIR, `profile-${member.id}-${hash}.png`)
+  if (!existsSync(file) || statSync(file).size === 0) {
+    await runProfileCardRenderer(payload, file)
+  }
+  return {
+    path: file,
+    name: `profile-${member.id}.png`,
+    type: 'image',
+    size: statSync(file).size,
   }
 }
 
@@ -3082,6 +3198,45 @@ async function handleCommand(message, text) {
     return true
   }
 
+  if (['/我的画像', '/my-profile', '/画像卡'].includes(command)) {
+    refreshSettings()
+    if (!settings.memoryEnabled) {
+      await sendText(message, '记忆功能已关闭。')
+      return true
+    }
+    // 本地记忆就是推送到皮肤站的那份画像快照，直接用它生成，避免依赖站点登录态。
+    const memory = getMessageMemory(message)
+    if (!memory?.member) {
+      await sendText(message, '我还没记住你，先聊几句，或者发 /记住 你希望我记住的事。')
+      return true
+    }
+    const binding = await getMengliBinding(message)
+    const normalized = ensureMemoryDisplayName(memory, binding)
+    const member = normalized?.member || memory.member
+    if (!member.summary && !member.personality && !member.interactionStyle && !(member.tags || []).length) {
+      await sendText(message, '你的画像还在整理中，多聊几句或发 /整理记忆，整理好后再发 /我的画像。')
+      return true
+    }
+    try {
+      const file = await generateProfileCard(message, member, binding)
+      const result = await sendMediaFiles(message, [file])
+      if (!result.sent) throw new Error('头像卡片没有发送成功')
+      recordEvent('profile_card', {
+        phase: 'sent',
+        peerId: message.peerId,
+        userId: message.userId,
+        size: file.size,
+      })
+      log(`画像卡片已发送 member=${member.id} bytes=${file.size}`)
+    } catch (error) {
+      const detail = describeError(error).slice(0, 300)
+      log(`画像卡片发送失败：${detail}`)
+      recordEvent('profile_card', { phase: 'failed', peerId: message.peerId, userId: message.userId, error: detail })
+      await sendText(message, `画像卡片生成失败了，先看文字版：\n${profileFallbackText(member, binding)}`, { maxChunks: 3 })
+    }
+    return true
+  }
+
   if (['/忘记我', '/forget'].includes(command)) {
     refreshSettings()
     if (!settings.memoryEnabled) {
@@ -3168,6 +3323,7 @@ async function handleCommand(message, text) {
       '/绑定账号 <绑定码> 绑定皮肤站账号和 QQ 记忆',
       '/是谁 <名字> 查群友画像',
       '/我的记忆 查看梦璃记住的你',
+      '/我的画像 生成你的群友画像卡片',
       '/忘记我 清除你在这个群的记忆',
       '/记忆 记忆库状态',
       '/整理记忆 重新整理你的画像',
