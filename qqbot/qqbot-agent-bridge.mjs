@@ -2,7 +2,7 @@
 // QQ 官方机器人 <-> ZCode agent 桥。
 // 收到 QQ 私聊/群 @ 消息后，用无头 ZCode CLI 跑一轮独立会话，再把回复发回 QQ。
 // 凭据只从环境变量读取；不记录消息正文（除非显式开启 QQBOT_LOG_CONTENT=1）。
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   appendFileSync,
@@ -595,6 +595,20 @@ function writeStatus(extra = {}) {
   }
 }
 
+function processCommandLine(pid) {
+  if (process.platform !== 'win32') return ''
+  try {
+    return execFileSync('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `(Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}").CommandLine`,
+    ], { encoding: 'utf8', timeout: 3000, windowsHide: true }).trim()
+  } catch {
+    return ''
+  }
+}
+
 function ensureSingleGateway() {
   for (const name of ['connector.pid', 'bridge.pid']) {
     const file = join(RUNTIME_DIR, name)
@@ -603,11 +617,20 @@ function ensureSingleGateway() {
     if (!pid || pid === process.pid) continue
     try {
       process.kill(pid, 0)
-      console.error(`已有网关进程在运行（${name}: pid=${pid}），先停止它再启动桥接`)
-      process.exit(2)
     } catch {
-      // 陈旧 pid，忽略
+      // 进程不存在，清理陈旧 pid
+      try { unlinkSync(file) } catch { /* ignore */ }
+      continue
     }
+    const commandLine = processCommandLine(pid)
+    if (commandLine && !/qqbot-agent-bridge\.mjs|qqbot-connector\.mjs/i.test(commandLine)) {
+      // Windows 重启后 PID 可能被其他程序复用，不能只凭 pid 存在就判定网关在跑。
+      console.warn(`清理陈旧 PID：${name} 指向 ${pid}（${commandLine.slice(0, 120)}）`)
+      try { unlinkSync(file) } catch { /* ignore */ }
+      continue
+    }
+    console.error(`已有网关进程在运行（${name}: pid=${pid}），先停止它再启动桥接`)
+    process.exit(2)
   }
   writeFileSync(PID_FILE, String(process.pid))
 }
