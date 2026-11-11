@@ -52,6 +52,7 @@ function readLocalBindings(file) {
 
 function applyRemoteSettings(file, settings, log) {
   if (!settings || typeof settings !== 'object') return false
+  const current = readLocalSettings(file)
   const next = {
     mediaEnabled: settings.mediaEnabled !== false,
     mcPlayerLimit: Number(settings.mcPlayerLimit) || 5,
@@ -65,8 +66,11 @@ function applyRemoteSettings(file, settings, log) {
     memoryRecentMessages: Number(settings.memoryRecentMessages) || 6,
     memoryAutoProfile: settings.memoryAutoProfile === true,
     memoryAutoProfileEvery: Number(settings.memoryAutoProfileEvery) || 20,
+    // 独立记忆群只在本地监控页配置，站点设置里没有这个字段时不能把它覆盖掉。
+    memoryIsolatedGroups: Array.isArray(settings.memoryIsolatedGroups)
+      ? settings.memoryIsolatedGroups
+      : (Array.isArray(current?.memoryIsolatedGroups) ? current.memoryIsolatedGroups : []),
   }
-  const current = readLocalSettings(file)
   if (current && JSON.stringify(current) === JSON.stringify(next)) return false
   try {
     writeFileSync(file, JSON.stringify(next, null, 2))
@@ -114,6 +118,7 @@ function memorySnapshot(memoryStore) {
       id: member.id,
       connectionKey: connections[0] || member.connectionKey,
       connections,
+      scopeKey: member.scopeKey || 'global',
       bindingKey: bindingKeys[0] || '',
       bindingKeys,
       nickname: member.nickname,

@@ -520,6 +520,8 @@
         <label class="setting-row"><span>自动画像</span><input type="checkbox" id="setMemoryAuto" /></label>
         <label class="setting-row"><span>自动画像间隔（条）</span><input type="number" id="setMemoryEvery" min="5" max="500" class="num" /></label>
         <p class="setting-hint">自动画像会定期调用模型整理性格/兴趣，默认关闭。</p>
+        <label class="setting-row"><span>独立记忆群</span><input type="text" id="setMemoryIsolated" class="text-input" placeholder="群 openid，逗号分隔" /></label>
+        <p class="setting-hint">列出的群从空画像开始，与测试群和私聊隔离；可在左侧群列表点复制 openid。大群启用后建议只加正式群。</p>
 
         <p class="setting-warning" id="settingsWarning"></p>
         <p class="setting-error hidden" id="settingsError"></p>
@@ -1135,6 +1137,7 @@
       el('setMemoryRecent').value = String(Number(settings.memoryRecentMessages) || 6)
       el('setMemoryAuto').checked = Boolean(settings.memoryAutoProfile)
       el('setMemoryEvery').value = String(Number(settings.memoryAutoProfileEvery) || 20)
+      el('setMemoryIsolated').value = (Array.isArray(settings.memoryIsolatedGroups) ? settings.memoryIsolatedGroups : []).join(', ')
       el('settingsError').classList.add('hidden')
       const full = Number(state.status.groupFullMessages || 0)
       el('settingsWarning').textContent = full > 0
@@ -1161,6 +1164,7 @@
         memoryRecentMessages: Number(el('setMemoryRecent').value) || 6,
         memoryAutoProfile: el('setMemoryAuto').checked,
         memoryAutoProfileEvery: Number(el('setMemoryEvery').value) || 20,
+        memoryIsolatedGroups: el('setMemoryIsolated').value,
       }
       el('settingsSave').disabled = true
       try {
@@ -1204,6 +1208,9 @@
     }
 
     function memoryScope(member) {
+      if (member.scopeKey && member.scopeKey !== 'global') {
+        return `独立记忆 · ${memoryPeerLabel(member.scopeKey)}`
+      }
       const connections = Array.isArray(member.connections) && member.connections.length
         ? member.connections
         : [member.connectionKey].filter(Boolean)

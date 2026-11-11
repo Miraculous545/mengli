@@ -99,6 +99,7 @@ function memberFromRow(row, noteCount = undefined) {
     id: Number(row.id),
     platform: row.platform || 'qq',
     connectionKey: row.connection_key,
+    scopeKey: row.scope_key || 'global',
     userOpenid: row.user_openid,
     displayName: row.display_name || '',
     groupNickname: row.nickname || '',
@@ -128,6 +129,7 @@ export class MemoryStore {
   constructor(filePath) {
     this.filePath = filePath
     this.db = null
+    this.isolatedGroups = new Set()
   }
 
   init() {
@@ -140,6 +142,7 @@ export class MemoryStore {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         platform TEXT NOT NULL DEFAULT 'qq',
         connection_key TEXT NOT NULL,
+        scope_key TEXT NOT NULL DEFAULT 'global',
         user_openid TEXT NOT NULL,
         nickname TEXT NOT NULL DEFAULT '',
         avatar TEXT NOT NULL DEFAULT '',
@@ -192,7 +195,6 @@ export class MemoryStore {
         value TEXT NOT NULL
       );
     `)
-    this.migrateGlobalMembers()
     try {
       this.db.exec('ALTER TABLE members ADD COLUMN last_analyzed_count INTEGER NOT NULL DEFAULT 0')
     } catch {
@@ -208,6 +210,12 @@ export class MemoryStore {
     } catch {
       // 新库已包含该列
     }
+    try {
+      this.db.exec("ALTER TABLE members ADD COLUMN scope_key TEXT NOT NULL DEFAULT 'global'")
+    } catch {
+      // 新库已包含该列
+    }
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_members_scope ON members(platform, scope_key, user_openid)')
     this.migrateGlobalMembers()
     return this
   }
@@ -215,7 +223,7 @@ export class MemoryStore {
   migrateGlobalMembers() {
     const version = this.db.prepare("SELECT value FROM memory_meta WHERE key = 'schema_version'").get()
     if (String(version?.value || '') === '2') return
-    const rows = this.db.prepare('SELECT * FROM members ORDER BY user_openid ASC, observed_message_count DESC, id ASC').all()
+    const rows = this.db.prepare("SELECT * FROM members WHERE scope_key = 'global' ORDER BY user_openid ASC, observed_message_count DESC, id ASC").all()
     const groups = new Map()
     for (const row of rows) {
       const key = `${row.platform || 'qq'}:${row.user_openid}`
@@ -322,6 +330,125 @@ export class MemoryStore {
     this.db = null
   }
 
+  setIsolatedGroups(groups = []) {
+    const next = new Set((groups || [])
+      .map(value => String(value || '').trim())
+      .filter(value => value.startsWith('group:')))
+    const added = [...next].filter(key => !this.isolatedGroups.has(key))
+    const removed = [...this.isolatedGroups].filter(key => !next.has(key))
+    this.isolatedGroups = next
+    if (added.length) this.detachIsolatedConnections(added)
+    if (removed.length) this.mergeIsolatedConnections(removed)
+  }
+
+  scopeKeyFor(connectionKey) {
+    const key = String(connectionKey || '').trim()
+    return this.isolatedGroups.has(key) ? key : 'global'
+  }
+
+  // 独立群启用时，把该群从旧的全局画像里摘掉，避免旧连接继续把两个范围混在一起。
+  detachIsolatedConnections(keys = []) {
+    const groupKeys = [...new Set((keys || []).filter(key => String(key).startsWith('group:')))]
+    if (!groupKeys.length) return
+    this.db.exec('BEGIN')
+    try {
+      for (const key of groupKeys) {
+        const members = this.db.prepare(`
+          SELECT id, user_openid FROM members
+          WHERE platform = 'qq' AND scope_key = 'global'
+            AND (connection_key = ? OR id IN (
+              SELECT member_id FROM member_connections WHERE connection_key = ?
+            ))
+        `).all(key, key)
+        for (const member of members) {
+          const removed = this.db.prepare(`
+            SELECT nickname FROM member_connections WHERE member_id = ? AND connection_key = ?
+          `).get(member.id, key)
+          this.db.prepare('DELETE FROM member_connections WHERE member_id = ? AND connection_key = ?')
+            .run(member.id, key)
+          const current = this.db.prepare('SELECT connection_key, nickname FROM members WHERE id = ?').get(member.id)
+          const next = this.db.prepare(`
+            SELECT connection_key, nickname FROM member_connections
+            WHERE member_id = ? ORDER BY last_seen_at DESC LIMIT 1
+          `).get(member.id)
+          const keepConnection = String(current?.connection_key || '') !== key
+            ? current?.connection_key
+            : (next?.connection_key || `global:${member.user_openid}`)
+          const nicknameWasFromIsolated = removed?.nickname && String(current?.nickname || '') === removed.nickname
+          const nextNickname = nicknameWasFromIsolated ? (next?.nickname || '') : current?.nickname
+          this.db.prepare('UPDATE members SET connection_key = ?, nickname = ?, updated_at = ? WHERE id = ?')
+            .run(keepConnection, nextNickname || '', Date.now(), member.id)
+        }
+      }
+      this.db.exec('COMMIT')
+    } catch (error) {
+      try { this.db.exec('ROLLBACK') } catch { /* ignore */ }
+      throw error
+    }
+  }
+
+  // 移除独立设置时，把该群已有的独立画像合并回全局，避免旧连接和唯一索引冲突。
+  mergeIsolatedConnections(keys = []) {
+    const groupKeys = [...new Set((keys || []).filter(key => String(key).startsWith('group:')))]
+    if (!groupKeys.length) return
+    this.db.exec('BEGIN')
+    try {
+      for (const key of groupKeys) {
+        const rows = this.db.prepare(
+          "SELECT * FROM members WHERE platform = 'qq' AND scope_key = ? AND connection_key = ?",
+        ).all(key, key)
+        for (const row of rows) {
+          const global = this.db.prepare(`
+            SELECT * FROM members
+            WHERE platform = 'qq' AND scope_key = 'global' AND user_openid = ?
+            ORDER BY last_activity_at DESC, id ASC LIMIT 1
+          `).get(row.user_openid)
+          if (!global) {
+            this.db.prepare("UPDATE members SET scope_key = 'global', updated_at = ? WHERE id = ?")
+              .run(Date.now(), row.id)
+            continue
+          }
+          this.db.prepare('UPDATE member_messages SET member_id = ? WHERE member_id = ?').run(global.id, row.id)
+          this.db.prepare('UPDATE member_notes SET member_id = ? WHERE member_id = ?').run(global.id, row.id)
+          const tags = normalizeTags([
+            ...safeJson(global.tags, []),
+            ...safeJson(row.tags, []),
+          ])
+          this.db.prepare(`
+            UPDATE members SET summary = ?, personality = ?, interaction_style = ?, tags = ?,
+              observed_message_count = observed_message_count + ?,
+              reply_triggered_count = reply_triggered_count + ?,
+              reply_completed_count = reply_completed_count + ?,
+              reply_failed_count = reply_failed_count + ?,
+              last_activity_at = ?, updated_at = ? WHERE id = ?
+          `).run(
+            String(global.summary || row.summary || '').slice(0, MAX_SUMMARY),
+            String(global.personality || row.personality || '').slice(0, MAX_PERSONALITY),
+            String(global.interaction_style || row.interaction_style || '').slice(0, MAX_INTERACTION),
+            JSON.stringify(tags),
+            Number(row.observed_message_count || 0),
+            Number(row.reply_triggered_count || 0),
+            Number(row.reply_completed_count || 0),
+            Number(row.reply_failed_count || 0),
+            Math.max(Number(global.last_activity_at || 0), Number(row.last_activity_at || 0)),
+            Date.now(),
+            global.id,
+          )
+          this.db.prepare(`
+            INSERT OR REPLACE INTO member_connections (member_id, connection_key, nickname, last_seen_at)
+            VALUES (?, ?, ?, ?)
+          `).run(global.id, key, row.nickname || '', Number(row.last_activity_at || 0))
+          this.db.prepare('DELETE FROM member_connections WHERE member_id = ?').run(row.id)
+          this.db.prepare('DELETE FROM members WHERE id = ?').run(row.id)
+        }
+      }
+      this.db.exec('COMMIT')
+    } catch (error) {
+      try { this.db.exec('ROLLBACK') } catch { /* ignore */ }
+      throw error
+    }
+  }
+
   attachConnections(member) {
     if (!member) return null
     const rows = this.db.prepare(`
@@ -344,10 +471,11 @@ export class MemoryStore {
     `).run(Number(memberId), String(connectionKey), clampText(nickname, 100), Number(lastSeenAt) || Date.now())
   }
 
-  findMember(_connectionKey, userOpenid) {
+  findMember(connectionKey, userOpenid) {
+    const scopeKey = this.scopeKeyFor(connectionKey)
     const row = this.db.prepare(
-      'SELECT * FROM members WHERE platform = ? AND user_openid = ? ORDER BY last_activity_at DESC LIMIT 1',
-    ).get('qq', userOpenid)
+      'SELECT * FROM members WHERE platform = ? AND scope_key = ? AND user_openid = ? ORDER BY last_activity_at DESC LIMIT 1',
+    ).get('qq', scopeKey, userOpenid)
     return this.attachConnections(memberFromRow(row))
   }
 
@@ -357,6 +485,7 @@ export class MemoryStore {
   }
 
   findOrCreateMember({ connectionKey, userId, nickname = '' }) {
+    const scopeKey = this.scopeKeyFor(connectionKey)
     const existing = this.findMember(connectionKey, userId)
     const now = Date.now()
     const cleanNickname = clampText(nickname, 100)
@@ -382,9 +511,9 @@ export class MemoryStore {
     }
     const result = this.db.prepare(`
       INSERT INTO members (
-        platform, connection_key, user_openid, nickname, last_activity_at, created_at, updated_at
-      ) VALUES ('qq', ?, ?, ?, ?, ?, ?)
-    `).run(connectionKey, userId, cleanNickname, now, now, now)
+        platform, connection_key, scope_key, user_openid, nickname, last_activity_at, created_at, updated_at
+      ) VALUES ('qq', ?, ?, ?, ?, ?, ?, ?)
+    `).run(connectionKey, scopeKey, userId, cleanNickname, now, now, now)
     const memberId = Number(result.lastInsertRowid)
     this.recordConnection(memberId, connectionKey, cleanNickname, now)
     return this.getMember(memberId)
@@ -536,12 +665,13 @@ export class MemoryStore {
   findMentionedMembers(connectionKey, text, { excludeUserId = null, limit = 3 } = {}) {
     const messageText = String(text || '')
     if (!messageText) return []
+    const scopeKey = this.scopeKeyFor(connectionKey)
     const rows = this.db.prepare(`
       SELECT DISTINCT m.* FROM members m
       JOIN member_connections c ON c.member_id = m.id
-      WHERE m.platform = 'qq' AND c.connection_key = ? AND m.enabled = 1
+      WHERE m.platform = 'qq' AND m.scope_key = ? AND c.connection_key = ? AND m.enabled = 1
       ORDER BY m.last_activity_at DESC LIMIT 300
-    `).all(connectionKey)
+    `).all(scopeKey, connectionKey)
     const matches = []
     for (const row of rows) {
       const member = this.attachConnections(memberFromRow(row))

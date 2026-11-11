@@ -131,6 +131,20 @@ function clampNumber(value, min, max, fallback) {
   return Math.min(max, Math.max(min, parsed))
 }
 
+function normalizeIsolatedGroups(value) {
+  const items = Array.isArray(value) ? value : String(value || '').split(/[\s,，;；]+/)
+  const groups = []
+  for (const item of items) {
+    const raw = String(item || '').trim()
+    if (!raw) continue
+    const peer = raw.startsWith('group:') ? raw.slice(6) : raw
+    if (!/^[A-Za-z0-9_-]{6,120}$/.test(peer)) continue
+    const key = `group:${peer}`
+    if (!groups.includes(key)) groups.push(key)
+  }
+  return groups.slice(0, 20)
+}
+
 function defaultSettings() {
   return {
     mediaEnabled: MEDIA_ENABLED_DEFAULT,
@@ -144,6 +158,7 @@ function defaultSettings() {
     memoryRecentMessages: 6,
     memoryAutoProfile: false,
     memoryAutoProfileEvery: 20,
+    memoryIsolatedGroups: [],
     mcPlayerLimit: 5,
   }
 }
@@ -162,6 +177,7 @@ function normalizeSettings(input) {
     memoryRecentMessages: clampNumber(data.memoryRecentMessages, 1, 20, 6),
     memoryAutoProfile: typeof data.memoryAutoProfile === 'boolean' ? data.memoryAutoProfile : false,
     memoryAutoProfileEvery: clampNumber(data.memoryAutoProfileEvery, 5, 500, 20),
+    memoryIsolatedGroups: normalizeIsolatedGroups(data.memoryIsolatedGroups),
     mcPlayerLimit: clampNumber(data.mcPlayerLimit, 1, 20, 5),
   }
 }
@@ -188,6 +204,9 @@ function loadSettings() {
 }
 
 let settings = loadSettings()
+memoryStore.setIsolatedGroups(settings.memoryIsolatedGroups)
+let settingsMtime = 0
+try { settingsMtime = statSync(SETTINGS_FILE).mtimeMs } catch { /* 配置文件尚未写入 */ }
 if (!existsSync(SETTINGS_FILE)) {
   try {
     writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2))
@@ -261,15 +280,26 @@ function recordAutoReplyTrigger(message, now = Date.now()) {
 
 function refreshSettings() {
   settings = loadSettings()
+  memoryStore.setIsolatedGroups(settings.memoryIsolatedGroups)
   mediaEnabled = settings.mediaEnabled
+  try { settingsMtime = statSync(SETTINGS_FILE).mtimeMs } catch { /* ignore */ }
   return settings
+}
+
+function refreshSettingsIfChanged() {
+  let mtime = 0
+  try { mtime = statSync(SETTINGS_FILE).mtimeMs } catch { return }
+  if (mtime === settingsMtime) return
+  refreshSettings()
 }
 
 function saveSettings(next) {
   settings = normalizeSettings(next)
+  memoryStore.setIsolatedGroups(settings.memoryIsolatedGroups)
   mediaEnabled = settings.mediaEnabled
   try {
     writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2))
+    settingsMtime = statSync(SETTINGS_FILE).mtimeMs
   } catch (error) {
     log(`设置保存失败：${error.message}`)
   }
@@ -3406,7 +3436,7 @@ async function handleDispatch(payload) {
   }
   if (duplicate(message)) return
 
-  refreshSettings()
+  refreshSettingsIfChanged()
   const mentionNames = resolveMentionNames(message)
   const text = cleanContent(message.content, mentionNames)
   const commandText = normalizeCommandText(text)

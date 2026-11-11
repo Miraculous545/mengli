@@ -108,6 +108,7 @@ const DEFAULT_SETTINGS = {
   memoryRecentMessages: 6,
   memoryAutoProfile: false,
   memoryAutoProfileEvery: 20,
+  memoryIsolatedGroups: [],
   mcPlayerLimit: 5,
 }
 
@@ -115,6 +116,20 @@ function clampNumber(value, min, max, fallback) {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return fallback
   return Math.min(max, Math.max(min, parsed))
+}
+
+function normalizeIsolatedGroups(value) {
+  const items = Array.isArray(value) ? value : String(value || '').split(/[\s,，;；]+/)
+  const groups = []
+  for (const item of items) {
+    const raw = String(item || '').trim()
+    if (!raw) continue
+    const peer = raw.startsWith('group:') ? raw.slice(6) : raw
+    if (!/^[A-Za-z0-9_-]{6,120}$/.test(peer)) continue
+    const key = `group:${peer}`
+    if (!groups.includes(key)) groups.push(key)
+  }
+  return groups.slice(0, 20)
 }
 
 function normalizeSettings(input) {
@@ -131,6 +146,7 @@ function normalizeSettings(input) {
     memoryRecentMessages: clampNumber(data.memoryRecentMessages, 1, 20, DEFAULT_SETTINGS.memoryRecentMessages),
     memoryAutoProfile: typeof data.memoryAutoProfile === 'boolean' ? data.memoryAutoProfile : DEFAULT_SETTINGS.memoryAutoProfile,
     memoryAutoProfileEvery: clampNumber(data.memoryAutoProfileEvery, 5, 500, DEFAULT_SETTINGS.memoryAutoProfileEvery),
+    memoryIsolatedGroups: normalizeIsolatedGroups(data.memoryIsolatedGroups),
     mcPlayerLimit: clampNumber(data.mcPlayerLimit, 1, 20, DEFAULT_SETTINGS.mcPlayerLimit),
   }
 }
