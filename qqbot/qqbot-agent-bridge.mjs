@@ -2236,6 +2236,14 @@ async function getMengliBinding(message) {
   return binding
 }
 
+function getCachedMengliBinding(message) {
+  if (!message?.userId) return null
+  const key = mengliBindingKeyOf(message)
+  return mengliBindingCache.get(key)?.binding
+    || mengliBindingCache.get(`user:${message.userId}`)?.binding
+    || null
+}
+
 function mengliBindingKeyOf(message) {
   return `${connectionKeyOf(message)}:${message.userId}`
 }
@@ -3210,7 +3218,8 @@ async function handleCommand(message, text) {
       await sendText(message, '我还没记住你，先聊几句，或者发 /记住 你希望我记住的事。')
       return true
     }
-    const binding = await getMengliBinding(message)
+    // 画像卡片优先用已缓存的站点绑定名；缓存没有时不额外等站点查询。
+    const binding = getCachedMengliBinding(message)
     const normalized = ensureMemoryDisplayName(memory, binding)
     const member = normalized?.member || memory.member
     if (!member.summary && !member.personality && !member.interactionStyle && !(member.tags || []).length) {
