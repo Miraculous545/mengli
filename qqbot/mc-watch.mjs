@@ -64,37 +64,44 @@ function countChangeLine(server, previousCount, currentCount) {
   return `${server.name} 在线人数 ${previousCount} → ${currentCount} 人${delta > 0 ? `（增加 ${delta}）` : `（减少 ${Math.abs(delta)}）`}。`
 }
 
-function formatChange(server, previous, current, names, playerLimit = 5) {
+function diffPlayers(previousNames, names) {
+  return {
+    joined: names.filter(name => !previousNames.includes(name)),
+    left: previousNames.filter(name => !names.includes(name)),
+  }
+}
+
+function namedChangeLines(server, currentCount, names, joined, left, playerLimit = 5) {
   const lines = []
+  const onlineLine = names.length
+    ? `当前在线 ${currentCount} 人：${limitedPlayerList(names, currentCount, playerLimit)}`
+    : `当前在线 ${currentCount} 人`
+  if (joined.length) {
+    lines.push(`[${server.name}]:▶ ${playerList(joined)} 加入了服务器`, onlineLine)
+  }
+  if (left.length) {
+    lines.push(`[${server.name}]:◀ ${playerList(left)} 退出了服务器`, onlineLine)
+  }
+  return lines
+}
+
+function formatChange(server, previous, current, names, playerLimit = 5) {
   const previousCount = Number(previous.count) || 0
   const currentCount = Number(current.count) || 0
   if (previous.online !== current.online) {
-    lines.push(current.online
+    return [current.online
       ? `${server.name} 已上线，当前在线 ${currentCount} 人${names.length ? `：${limitedPlayerList(names, currentCount, playerLimit)}` : ''}。`
-      : `${server.name} 已离线。`)
-    return lines
+      : `${server.name} 已离线。`]
   }
-  if (!current.online) return lines
+  if (!current.online) return []
   const prevNames = Array.isArray(previous.players) ? previous.players : []
-  const knownCurrent = names.length > 0 || (currentCount === 0 && prevNames.length > 0)
-  if (knownCurrent && (prevNames.length || previousCount === 0)) {
-    const joined = names.filter(name => !prevNames.includes(name))
-    const left = prevNames.filter(name => !names.includes(name))
-    const onlineLine = names.length
-      ? `当前在线 ${currentCount} 人：${limitedPlayerList(names, currentCount, playerLimit)}`
-      : `当前在线 ${currentCount} 人`
-    if (joined.length) {
-      lines.push(`[${server.name}]:▶ ${playerList(joined)} 加入了服务器`, onlineLine)
-    }
-    if (left.length) {
-      lines.push(`[${server.name}]:◀ ${playerList(left)} 退出了服务器`, onlineLine)
-    }
-    if (joined.length || left.length) return lines
-  }
+  const { joined, left } = diffPlayers(prevNames, names)
+  const lines = namedChangeLines(server, currentCount, names, joined, left, playerLimit)
+  if (lines.length) return lines
   if (previousCount !== currentCount) {
-    lines.push(countChangeLine(server, previousCount, currentCount))
+    return [countChangeLine(server, previousCount, currentCount)]
   }
-  return lines
+  return []
 }
 
 // 站点 ping 只有约 2 秒窗口，一次超时就会返回离线；离线要连续确认，避免假播报。
@@ -135,24 +142,47 @@ export function applyServerObservation({
       confirmedOffline,
     }
   }
+  if (!previous.online) {
+    return {
+      next: { ...next, pendingPolls: 0, pendingSince: 0, countOnlyAt: 0 },
+      lines: formatChange(server, previous, next, names, playerLimit),
+      suppressed: false,
+      offlinePolls: 0,
+      confirmedOffline,
+    }
+  }
 
   const prevNames = Array.isArray(previous.players) ? previous.players : []
   const previousCount = Number(previous.count) || 0
   const currentCount = Number(next.count) || 0
   const countChanged = previousCount !== currentCount
-  const namesMissing = names.length === 0
+  const namesMissing = names.length === 0 && currentCount > 0
+  const { joined, left } = namesMissing ? { joined: [], left: [] } : diffPlayers(prevNames, names)
+  const hasNameDiff = joined.length > 0 || left.length > 0
 
-  // 名单暂时没拿到时不要把已有名单清空，也不要在同一轮人数变化里连续播两次。
-  if (previous.online && next.online && namesMissing) {
-    if (!countChanged) {
-      return {
-        next: { ...previous, at: next.at, pendingPolls: 0, pendingSince: 0 },
-        lines: [],
-        suppressed: true,
-        offlinePolls: 0,
-        confirmedOffline,
-      }
+  // 已经播过人数变化，等名单恢复后的这一轮只用来重建基线，避免再播一次退出/加入。
+  if (previous.countOnlyAt && !namesMissing) {
+    return {
+      next: { ...next, countOnlyAt: 0, pendingPolls: 0, pendingSince: 0 },
+      lines: [],
+      suppressed: false,
+      offlinePolls: 0,
+      confirmedOffline,
     }
+  }
+
+  if (namesMissing && !countChanged) {
+    return {
+      next: { ...previous, at: next.at, pendingPolls: 0, pendingSince: 0 },
+      lines: [],
+      suppressed: true,
+      offlinePolls: 0,
+      confirmedOffline,
+    }
+  }
+
+  // 人数变了但名单没变或没拿到：先等一轮，等名单同步后再播具体是谁，避免先报人数再报退出。
+  if (countChanged && !hasNameDiff) {
     if (prevNames.length) {
       const pendingPolls = (Number(previous.pendingPolls) || 0) + 1
       if (pendingPolls < Math.max(1, Number(nameWaitPolls) || 3)) {
@@ -171,6 +201,14 @@ export function applyServerObservation({
           pendingPolls,
         }
       }
+    } else if (previousCount === 0 && !namesMissing && names.length) {
+      return {
+        next: { ...next, countOnlyAt: 0, pendingPolls: 0, pendingSince: 0 },
+        lines: namedChangeLines(server, currentCount, names, names, [], playerLimit),
+        suppressed: false,
+        offlinePolls: 0,
+        confirmedOffline,
+      }
     }
     return {
       next: { ...next, players: [], pendingPolls: 0, pendingSince: 0, countOnlyAt: now },
@@ -182,21 +220,12 @@ export function applyServerObservation({
     }
   }
 
-  // 已经播过人数变化，等名单恢复后的这一轮只用来重建基线，避免再播一次退出/加入。
-  if (previous.countOnlyAt && names.length) {
-    return {
-      next: { ...next, countOnlyAt: 0, pendingPolls: 0, pendingSince: 0 },
-      lines: [],
-      suppressed: false,
-      offlinePolls: 0,
-      confirmedOffline,
-    }
-  }
-
   next = { ...next, pendingPolls: 0, pendingSince: 0, countOnlyAt: 0 }
   return {
     next,
-    lines: formatChange(server, previous, next, names, playerLimit),
+    lines: hasNameDiff
+      ? namedChangeLines(server, currentCount, names, joined, left, playerLimit)
+      : [],
     suppressed: false,
     offlinePolls: 0,
     confirmedOffline,
