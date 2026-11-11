@@ -18,7 +18,7 @@ import {
 import { basename, dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MemoryStore } from './memory/store.mjs'
-import { getMcServerStatus, getSkinPlayersForUser, searchSkinPlayers, skinSiteConfigured } from './skin-site.mjs'
+import { getMcServerStatus, getSiteUserAvatar, getSkinPlayersForUser, searchSkinPlayers, skinSiteConfigured } from './skin-site.mjs'
 import { startMcWatch } from './mc-watch.mjs'
 import { startMengliPush } from './mengli-push.mjs'
 import { bindMengliAccount, getMcOnlinePlayers, getMcPlaytime, lookupMengliBinding, mengliSiteConfigured } from './mengli-site.mjs'
@@ -63,7 +63,8 @@ const MEDIA_PYTHON = process.env.QQBOT_MEDIA_PYTHON || join(ROOT, 'media-parser'
 const MEDIA_CACHE_DIR = process.env.QQBOT_MEDIA_CACHE || join(RUNTIME_DIR, 'media-cache')
 const PROFILE_CARD_SCRIPT = join(ROOT, 'profile-card', 'render_profile_card.py')
 const PROFILE_CARD_DIR = join(RUNTIME_DIR, 'profile-cards')
-const PROFILE_CARD_VERSION = 3
+const PROFILE_AVATAR_DIR = join(PROFILE_CARD_DIR, 'avatars')
+const PROFILE_CARD_VERSION = 4
 const PROFILE_PYTHON = process.env.QQBOT_PROFILE_PYTHON || MEDIA_PYTHON
 const INBOUND_MEDIA_DIR = join(RUNTIME_DIR, 'inbound-media')
 const INBOUND_MAX_IMAGES = numberEnv('QQBOT_INBOUND_MAX_IMAGES', 4)
@@ -874,19 +875,21 @@ function profileCardPython() {
 }
 
 function cleanupProfileCards() {
-  try {
-    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
-    for (const name of readdirSync(PROFILE_CARD_DIR)) {
-      if (!name.endsWith('.png')) continue
-      const file = join(PROFILE_CARD_DIR, name)
-      try {
-        if (statSync(file).mtimeMs < cutoff) unlinkSync(file)
-      } catch {
-        // 单张清理失败不影响生成
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
+  for (const dir of [PROFILE_CARD_DIR, PROFILE_AVATAR_DIR]) {
+    try {
+      for (const name of readdirSync(dir)) {
+        if (!/\.(png|jpe?g|webp)$/i.test(name)) continue
+        const file = join(dir, name)
+        try {
+          if (statSync(file).mtimeMs < cutoff) unlinkSync(file)
+        } catch {
+          // 单个文件清理失败不影响生成
+        }
       }
+    } catch {
+      // 缓存目录还不存在时忽略
     }
-  } catch {
-    // 缓存目录还不存在时忽略
   }
 }
 
@@ -933,10 +936,47 @@ function runProfileCardRenderer(payload, output) {
   })
 }
 
-function profileCardPayload(message, member, binding) {
+async function downloadProfileAvatar(url) {
+  const value = String(url || '').trim()
+  if (!value) return ''
+  let extension = '.jpg'
+  try {
+    const pathname = new URL(value).pathname.toLowerCase()
+    if (pathname.endsWith('.png')) extension = '.png'
+    else if (pathname.endsWith('.webp')) extension = '.webp'
+  } catch {
+    return ''
+  }
+  const hash = createHash('sha1').update(value).digest('hex').slice(0, 20)
+  mkdirSync(PROFILE_AVATAR_DIR, { recursive: true })
+  const file = join(PROFILE_AVATAR_DIR, `${hash}${extension}`)
+  if (existsSync(file) && statSync(file).size > 0) return file
+  try {
+    const response = await fetch(value, { signal: AbortSignal.timeout(6000) })
+    if (!response.ok) return ''
+    const type = String(response.headers.get('content-type') || '')
+    if (!type.startsWith('image/')) return ''
+    const bytes = Buffer.from(await response.arrayBuffer())
+    if (!bytes.length || bytes.length > 2 * 1024 * 1024) return ''
+    writeFileSync(file, bytes)
+    return file
+  } catch {
+    return ''
+  }
+}
+
+async function resolveProfileAvatar(binding) {
+  const siteUserId = String(binding?.siteUserId || '').trim()
+  if (!siteUserId || !skinSiteConfigured()) return ''
+  const url = await getSiteUserAvatar(siteUserId)
+  return url ? downloadProfileAvatar(url) : ''
+}
+
+function profileCardPayload(message, member, binding, avatarPath = '') {
   return {
     name: safeUserDisplayName(member, binding),
     scope: message.kind === 'group' ? '本群' : '本次对话',
+    avatarPath,
     summary: member.summary || '',
     personality: member.personality || '',
     interactionStyle: member.interactionStyle || '',
@@ -961,7 +1001,8 @@ function profileFallbackText(member, binding) {
 }
 
 async function generateProfileCard(message, member, binding) {
-  const payload = profileCardPayload(message, member, binding)
+  const avatarPath = await resolveProfileAvatar(binding)
+  const payload = profileCardPayload(message, member, binding, avatarPath)
   const hash = createHash('sha1')
     .update(`${PROFILE_CARD_VERSION}:${JSON.stringify(payload)}`)
     .digest('hex')

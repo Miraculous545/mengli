@@ -8,7 +8,7 @@ import json
 import os
 import sys
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 SCALE = 2
 WIDTH = 760
@@ -170,6 +170,7 @@ def parse_data():
     return {
         "name": str(data.get("name") or "冒险家").strip()[:20] or "冒险家",
         "scope": str(data.get("scope") or "本群").strip()[:12] or "本群",
+        "avatar_path": str(data.get("avatarPath") or "").strip(),
         "summary": str(data.get("summary") or "").strip(),
         "personality": str(data.get("personality") or "").strip(),
         "interaction_style": str(data.get("interactionStyle") or "").strip(),
@@ -313,25 +314,45 @@ def main():
     avatar_size = px(78)
     avatar_x = INNER_X
     avatar_y = header_y
-    avatar = vertical_gradient(avatar_size, avatar_size, AVATAR_TOP, AVATAR_BOTTOM).convert("RGBA")
-    mask = Image.new("L", (avatar_size, avatar_size), 0)
-    ImageDraw.Draw(mask).ellipse((0, 0, avatar_size - 1, avatar_size - 1), fill=255)
-    circle = Image.new("RGBA", (avatar_size, avatar_size), (0, 0, 0, 0))
-    circle.paste(avatar, (0, 0), mask)
-    image.alpha_composite(circle, (px(avatar_x), px(avatar_y)))
+    avatar_drawn = False
+    avatar_path = data["avatar_path"]
+    if avatar_path and os.path.isfile(avatar_path):
+        try:
+            with Image.open(avatar_path) as source:
+                avatar_image = ImageOps.fit(
+                    source.convert("RGBA"),
+                    (avatar_size, avatar_size),
+                    method=Image.Resampling.LANCZOS,
+                )
+            mask = Image.new("L", (avatar_size, avatar_size), 0)
+            ImageDraw.Draw(mask).ellipse((0, 0, avatar_size - 1, avatar_size - 1), fill=255)
+            circle = Image.new("RGBA", (avatar_size, avatar_size), (0, 0, 0, 0))
+            circle.paste(avatar_image, (0, 0), mask)
+            image.alpha_composite(circle, (px(avatar_x), px(avatar_y)))
+            avatar_drawn = True
+        except Exception:
+            avatar_drawn = False
+    if not avatar_drawn:
+        avatar = vertical_gradient(avatar_size, avatar_size, AVATAR_TOP, AVATAR_BOTTOM).convert("RGBA")
+        mask = Image.new("L", (avatar_size, avatar_size), 0)
+        ImageDraw.Draw(mask).ellipse((0, 0, avatar_size - 1, avatar_size - 1), fill=255)
+        circle = Image.new("RGBA", (avatar_size, avatar_size), (0, 0, 0, 0))
+        circle.paste(avatar, (0, 0), mask)
+        image.alpha_composite(circle, (px(avatar_x), px(avatar_y)))
     draw = ImageDraw.Draw(image)
     draw.ellipse(
         (px(avatar_x), px(avatar_y), px(avatar_x + 78), px(avatar_y + 78)),
         outline=(255, 255, 255, 220),
         width=px(3),
     )
-    draw.text(
-        (px(avatar_x + 39), px(avatar_y + 39)),
-        avatar_initial(data["name"]),
-        font=fonts["avatar"],
-        fill=(255, 255, 255),
-        anchor="mm",
-    )
+    if not avatar_drawn:
+        draw.text(
+            (px(avatar_x + 39), px(avatar_y + 39)),
+            avatar_initial(data["name"]),
+            font=fonts["avatar"],
+            fill=(255, 255, 255),
+            anchor="mm",
+        )
 
     name_x = avatar_x + 78 + 22
     draw.text((px(name_x), px(header_y + 7)), data["name"], font=fonts["name"], fill=TEXT, anchor="la")
@@ -345,7 +366,7 @@ def main():
             anchor="la",
         )
 
-    stat_gap = px(14)
+    stat_gap = 14
     stat_w = (INNER_W - stat_gap * 2) / 3
     stats = [
         (format_count(data["messages"]), "互动消息"),

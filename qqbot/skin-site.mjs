@@ -44,6 +44,34 @@ export function skinSiteConfigured() {
   return configured()
 }
 
+const avatarCache = new Map()
+
+// 只取头像 URL，不把站点用户的其他字段带进桥接。
+export async function getSiteUserAvatar(siteUserId) {
+  const id = String(siteUserId || '').trim()
+  if (!id || !API_KEY) return ''
+  const cached = avatarCache.get(id)
+  if (cached && Date.now() - cached.at < 10 * 60 * 1000) return cached.avatar
+  try {
+    const response = await fetch(BASE + `/api/admin/users/${encodeURIComponent(id)}`, {
+      headers: {
+        Authorization: `Bearer ${API_KEY}`,
+        'X-API-Key': API_KEY,
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(4000),
+    })
+    if (!response.ok) return ''
+    const data = await response.json()
+    const user = data?.data?.user || data?.data || data?.user || data
+    const avatar = absoluteUrl(String(user?.avatar || '').trim())
+    avatarCache.set(id, { avatar, at: Date.now() })
+    return avatar
+  } catch {
+    return ''
+  }
+}
+
 export async function getMcServerStatus() {
   const data = await request('/api/plugins/minecraft-server/status')
   return {
