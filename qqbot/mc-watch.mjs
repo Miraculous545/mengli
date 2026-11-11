@@ -59,6 +59,11 @@ function limitedPlayerList(names, onlineCount, limit) {
   return `${playerList(shown)}${total > shown.length ? ` 等 ${total} 人` : ''}`
 }
 
+function countChangeLine(server, previousCount, currentCount) {
+  const delta = Number(currentCount) - Number(previousCount)
+  return `${server.name} 在线人数 ${previousCount} → ${currentCount} 人${delta > 0 ? `（增加 ${delta}）` : `（减少 ${Math.abs(delta)}）`}。`
+}
+
 function formatChange(server, previous, current, names, playerLimit = 5) {
   const lines = []
   const previousCount = Number(previous.count) || 0
@@ -87,14 +92,22 @@ function formatChange(server, previous, current, names, playerLimit = 5) {
     if (joined.length || left.length) return lines
   }
   if (previousCount !== currentCount) {
-    const delta = currentCount - previousCount
-    lines.push(`${server.name} 在线人数 ${previousCount} → ${currentCount} 人${delta > 0 ? `（增加 ${delta}）` : `（减少 ${Math.abs(delta)}）`}。`)
+    lines.push(countChangeLine(server, previousCount, currentCount))
   }
   return lines
 }
 
 // 站点 ping 只有约 2 秒窗口，一次超时就会返回离线；离线要连续确认，避免假播报。
-export function applyServerObservation({ server, previous, observed, names = [], offlineConfirmPolls = 2, playerLimit = 5 }) {
+export function applyServerObservation({
+  server,
+  previous,
+  observed,
+  names = [],
+  offlineConfirmPolls = 2,
+  playerLimit = 5,
+  nameWaitPolls = 3,
+  now = Date.now(),
+}) {
   let next = { ...observed, offlinePolls: 0 }
   let confirmedOffline = false
   if (previous?.online && !next.online) {
@@ -110,9 +123,80 @@ export function applyServerObservation({ server, previous, observed, names = [],
     }
     confirmedOffline = true
   }
+  if (!previous) {
+    return { next, lines: [], suppressed: false, offlinePolls: 0, confirmedOffline }
+  }
+  if (!next.online) {
+    return {
+      next,
+      lines: formatChange(server, previous, next, names, playerLimit),
+      suppressed: false,
+      offlinePolls: 0,
+      confirmedOffline,
+    }
+  }
+
+  const prevNames = Array.isArray(previous.players) ? previous.players : []
+  const previousCount = Number(previous.count) || 0
+  const currentCount = Number(next.count) || 0
+  const countChanged = previousCount !== currentCount
+  const namesMissing = names.length === 0
+
+  // 名单暂时没拿到时不要把已有名单清空，也不要在同一轮人数变化里连续播两次。
+  if (previous.online && next.online && namesMissing) {
+    if (!countChanged) {
+      return {
+        next: { ...previous, at: next.at, pendingPolls: 0, pendingSince: 0 },
+        lines: [],
+        suppressed: true,
+        offlinePolls: 0,
+        confirmedOffline,
+      }
+    }
+    if (prevNames.length) {
+      const pendingPolls = (Number(previous.pendingPolls) || 0) + 1
+      if (pendingPolls < Math.max(1, Number(nameWaitPolls) || 3)) {
+        return {
+          next: {
+            ...previous,
+            at: next.at,
+            pendingPolls,
+            pendingSince: previous.pendingSince || now,
+          },
+          lines: [],
+          suppressed: true,
+          offlinePolls: 0,
+          confirmedOffline,
+          waitingNames: true,
+          pendingPolls,
+        }
+      }
+    }
+    return {
+      next: { ...next, players: [], pendingPolls: 0, pendingSince: 0, countOnlyAt: now },
+      lines: [countChangeLine(server, previousCount, currentCount)],
+      suppressed: false,
+      offlinePolls: 0,
+      confirmedOffline,
+      countOnly: true,
+    }
+  }
+
+  // 已经播过人数变化，等名单恢复后的这一轮只用来重建基线，避免再播一次退出/加入。
+  if (previous.countOnlyAt && names.length) {
+    return {
+      next: { ...next, countOnlyAt: 0, pendingPolls: 0, pendingSince: 0 },
+      lines: [],
+      suppressed: false,
+      offlinePolls: 0,
+      confirmedOffline,
+    }
+  }
+
+  next = { ...next, pendingPolls: 0, pendingSince: 0, countOnlyAt: 0 }
   return {
     next,
-    lines: previous ? formatChange(server, previous, next, names, playerLimit) : [],
+    lines: formatChange(server, previous, next, names, playerLimit),
     suppressed: false,
     offlinePolls: 0,
     confirmedOffline,
@@ -133,6 +217,7 @@ export function startMcWatch({ root, groups, intervalMs = 20000, send, log, play
   let cookieWarned = false
   const interval = Math.max(10000, Number(intervalMs) || 20000)
   const offlineConfirmPolls = Math.max(1, Number(process.env.QQBOT_MC_OFFLINE_CONFIRM_POLLS) || 2)
+  const nameWaitPolls = Math.max(1, Number(process.env.QQBOT_MC_NAME_WAIT_POLLS) || 3)
   const currentPlayerLimit = () => {
     const raw = typeof playerLimit === 'function' ? playerLimit() : playerLimit
     return Math.max(1, Math.min(20, Number(raw) || 5))
@@ -159,14 +244,18 @@ export function startMcWatch({ root, groups, intervalMs = 20000, send, log, play
     // 站点没有 game-report 心跳时 online_players 为空，但服务端 status ping 的 players.sample 仍可能带名单。
     const sampleTasks = []
     for (const server of status.servers || []) {
-      if (!server.online || Number(server.onlineCount) <= 0) continue
-      if ((players.get(String(server.id)) || []).length) continue
+      if (!server.online) continue
+      const id = String(server.id || '')
+      const onlineCount = Math.max(0, Number(server.onlineCount) || 0)
+      const knownNames = players.get(id) || []
+      if (!onlineCount && !knownNames.length) continue
+      if (knownNames.length && knownNames.length >= onlineCount) continue
       const endpoint = endpointOf(server)
       if (!endpoint) continue
       sampleTasks.push(getMcPlayerSample({ ...endpoint, timeoutMs: 3000 }).then(sample => {
-        const expected = Math.max(Number(server.onlineCount) || 0, Number(sample.online) || 0)
+        const expected = Math.max(onlineCount, Number(sample.online) || 0)
         if (sample.names.length && sample.names.length >= expected) {
-          players.set(String(server.id), sample.names)
+          players.set(id, sample.names)
         }
       }).catch(() => {
         // 采样失败时继续使用人数兜底
@@ -179,10 +268,12 @@ export function startMcWatch({ root, groups, intervalMs = 20000, send, log, play
     for (const server of status.servers || []) {
       const id = String(server.id || '')
       if (!id) continue
-      const names = players.get(id) || []
+      const onlineCount = Math.max(0, Number(server.onlineCount) || 0)
+      const rawNames = players.get(id) || []
+      const names = rawNames.length >= onlineCount ? rawNames : []
       const observed = {
         online: Boolean(server.online),
-        count: Number(server.onlineCount || 0),
+        count: onlineCount,
         players: names,
         at: new Date().toISOString(),
       }
@@ -194,13 +285,19 @@ export function startMcWatch({ root, groups, intervalMs = 20000, send, log, play
         names,
         offlineConfirmPolls,
         playerLimit: currentPlayerLimit(),
+        nameWaitPolls,
       })
       if (result.suppressed) {
         if (result.offlinePolls === 1) {
           log(`服务器监控：${server.name} 探测离线，等待下一次确认（${result.offlinePolls}/${offlineConfirmPolls}）`)
+        } else if (result.waitingNames && result.pendingPolls === 1) {
+          log(`服务器监控：${server.name} 人数变化但玩家名单暂不可用，等待下一次确认`)
         }
         nextServers[id] = result.next
         continue
+      }
+      if (result.countOnly) {
+        log(`服务器监控：${server.name} 玩家名单连续 ${nameWaitPolls} 次不可用，先播报人数变化`)
       }
       if (result.confirmedOffline) {
         log(`服务器监控：${server.name} 连续 ${offlineConfirmPolls} 次探测离线，确认播报`)
