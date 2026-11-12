@@ -40,6 +40,7 @@ const ZCODE_PROVIDER_ROOT = join(
 const ZCODE_PERSONAL_PROVIDER_CONFIG = join(ZCODE_HOME, '.zcode', 'v2', 'provider_config.json')
 let providerConfigLogged = false
 const AGENT_MODE = (process.env.QQBOT_AGENT_MODE || 'guarded').trim()
+const AGENT_MODEL = (process.env.QQBOT_AGENT_MODEL || '').trim()
 const AGENT_TIMEOUT_MS = numberEnv('QQBOT_AGENT_TIMEOUT_MS', 120000)
 const MAX_CONCURRENCY = numberEnv('QQBOT_MAX_CONCURRENCY', 2)
 const MAX_QUEUE = numberEnv('QQBOT_MAX_QUEUE', 5)
@@ -689,6 +690,9 @@ const sessions = loadSessions()
 
 function sessionRotationReason(entry) {
   if (!entry?.sessionId) return ''
+  if (AGENT_MODEL && entry.model !== AGENT_MODEL) {
+    return entry.model ? `模型切换 ${entry.model} → ${AGENT_MODEL}` : '模型切换（旧会话）'
+  }
   const contextUsed = Number(entry.contextUsed) || 0
   if (contextUsed >= SESSION_MAX_CONTEXT) return `上下文 ${contextUsed} tokens`
   const turnCount = Number(entry.turnCount) || 0
@@ -2120,6 +2124,59 @@ function applyZcodeProviderEnv(env) {
   }
 }
 
+let agentModelLogged = false
+
+// 给 QQ 机器人单独生成 provider 配置，避免切换模型影响桌面里其它 ZCode 会话。
+function applyAgentModelEnv(env) {
+  if (!AGENT_MODEL) return
+  const source = env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE
+    || (existsSync(ZCODE_PERSONAL_PROVIDER_CONFIG) ? ZCODE_PERSONAL_PROVIDER_CONFIG : '')
+  if (!source || !existsSync(source)) {
+    log(`QQ 机器人模型 ${AGENT_MODEL} 未生效：找不到 provider 配置`)
+    return
+  }
+  const safeModel = AGENT_MODEL.replace(/[^A-Za-z0-9._-]/g, '-')
+  const target = join(RUNTIME_DIR, `zcode-provider-${safeModel}.json`)
+  try {
+    const sourceMtime = statSync(source).mtimeMs
+    if (!existsSync(target) || statSync(target).mtimeMs < sourceMtime) {
+      const config = JSON.parse(readFileSync(source, 'utf8'))
+      const providerRules = config?.config?.providerConfigRules?.providerRules
+      if (!Array.isArray(providerRules) || !providerRules.length) throw new Error('providerRules 为空')
+      const preferredId = Array.isArray(config.config.providerOrder) && config.config.providerOrder.length
+        ? config.config.providerOrder[0]
+        : ''
+      const provider = providerRules.find(rule => rule.providerId === preferredId)
+        || providerRules.find(rule => Array.isArray(rule.config?.personalModelIds)
+          && rule.config.personalModelIds.includes(AGENT_MODEL))
+        || providerRules[0]
+      if (!provider?.providerId) throw new Error('没有可用 provider')
+      const providerConfig = provider.config || (provider.config = {})
+      const modelIds = Array.isArray(providerConfig.personalModelIds) ? providerConfig.personalModelIds : []
+      providerConfig.personalModelIds = [AGENT_MODEL, ...modelIds.filter(id => id !== AGENT_MODEL)]
+      const modelOrder = Array.isArray(providerConfig.modelOrder) ? providerConfig.modelOrder : []
+      providerConfig.modelOrder = [AGENT_MODEL, ...modelOrder.filter(id => id !== AGENT_MODEL)]
+      const modelRules = config?.config?.modelConfigRules
+      if (modelRules && Array.isArray(modelRules.providerModelRules)
+        && !modelRules.providerModelRules.some(rule => rule.providerId === provider.providerId && rule.modelId === AGENT_MODEL)) {
+        modelRules.providerModelRules.push({
+          modelId: AGENT_MODEL,
+          config: { enabled: true },
+          providerId: provider.providerId,
+        })
+      }
+      writeFileSync(target, JSON.stringify(config, null, 2))
+      if (!agentModelLogged) {
+        agentModelLogged = true
+        log(`QQ 机器人使用模型：${AGENT_MODEL}（provider=${provider.providerId}）`)
+      }
+    }
+    env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE = target
+  } catch (error) {
+    log(`QQ 机器人模型配置失败，回退默认模型：${describeError(error).slice(0, 200)}`)
+  }
+}
+
 function runAgentSession({ prompt, sessionId, onSpawn }) {
   return new Promise((resolve, reject) => {
     const args = [ZCODE_CLI, '-p', prompt, '--json', '--no-color', '--cwd', WORKSPACE, '--mode', AGENT_MODE, '--locale', 'zh-CN']
@@ -2134,6 +2191,7 @@ function runAgentSession({ prompt, sessionId, onSpawn }) {
     delete agentEnv.SWUSTMC_BASE_URL
     delete agentEnv.MENGLI_INGEST_TOKEN
     applyZcodeProviderEnv(agentEnv)
+    applyAgentModelEnv(agentEnv)
 
     const child = spawn(process.execPath, args, {
       cwd: WORKSPACE,
@@ -2755,6 +2813,7 @@ async function runConversationTurn(message, text, job, media = null) {
           contextUsed: result.contextUsed,
           contextWindow: result.contextWindow,
           turnCount: result.turnCount || (rotationReason ? 1 : Number(previous?.turnCount || 0) + 1),
+          model: AGENT_MODEL || '',
         })
         saveSessions()
       }
@@ -4177,7 +4236,7 @@ if (!APP_ID || !APP_SECRET) {
   process.exit(1)
 }
 ensureSingleGateway()
-log(`启动 QQ <-> ZCode 桥 appId=${APP_ID} sandbox=${SANDBOX} mode=${AGENT_MODE} cwd=${WORKSPACE}`)
+log(`启动 QQ <-> ZCode 桥 appId=${APP_ID} sandbox=${SANDBOX} mode=${AGENT_MODE} model=${AGENT_MODEL || 'default'} cwd=${WORKSPACE}`)
 log(`访问控制：users=${ALLOW_USERS.length || '全部'} groups=${ALLOW_GROUPS.length || '全部'}`)
 try {
   memoryStore.cleanup(settings.memoryRetentionDays)

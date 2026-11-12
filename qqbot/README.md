@@ -2,7 +2,7 @@
 
 把 QQ 官方机器人接到本机 ZCode：QQ 私聊或群聊 @ 机器人后，由无头 ZCode 会话处理，再把回复发回 QQ。每个 QQ 会话对应一个独立的 ZCode 会话，可连续追问；支持断线重连、消息队列、基本指令和媒体链接解析。
 
-它调用的是同一套 ZCode CLI、模型和配置，但每个 QQ 会话是新开的 agent 会话，不共享桌面里这个对话的记忆。默认工作目录是 `QQbot/workspace`；需要它直接改插件仓库时把 `QQBOT_AGENT_CWD` 指到仓库目录。
+它调用的是同一套 ZCode CLI、模型和配置，但每个 QQ 会话是新开的 agent 会话，不共享桌面里这个对话的记忆。默认工作目录是 `QQbot/workspace`；需要它直接改插件仓库时把 `QQBOT_AGENT_CWD` 指到仓库目录。默认跟随 ZCode 的模型；可用 `QQBOT_AGENT_MODEL` 给机器人单独指定更快的模型，不影响桌面配置。
 
 ## 启动
 
@@ -114,6 +114,7 @@ media-parser\.venv\Scripts\python.exe media-parser\parse_media.py --list-platfor
 | `QQBOT_SECRET` | 必填 | QQ 机器人 AppSecret |
 | `QQBOT_AGENT_CWD` | `./workspace` | agent 工作目录；想让它直接改插件仓库可指向仓库根 |
 | `QQBOT_AGENT_MODE` | `guarded` | `guarded` 会拦住危险命令；`yolo` 全放开；`plan` 只读 |
+| `QQBOT_AGENT_MODEL` | 空=跟随 ZCode 默认 | QQ 机器人专用模型，例如 `qwen3.8-flash`；只生成机器人专用 provider 配置，不影响桌面 |
 | `QQBOT_AGENT_TIMEOUT_MS` | `120000` | 单轮超时；避免图片处理卡住时长时间不回复 |
 | `QQBOT_MEDIA_ENABLED` | `1` | 是否默认开启媒体链接解析 |
 | `QQBOT_MEDIA_MAX_VIDEO_MB` | `50` | 视频大小上限 |
