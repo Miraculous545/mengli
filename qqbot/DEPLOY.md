@@ -48,6 +48,27 @@ media-parser\.venv\Scripts\python.exe -m pip install -r media-parser\requirement
 
 如果安装路径不同，设置 `ZCODE_CLI`。这一步必须用**将来运行看门狗的那个 Windows 用户**执行，否则找不到 provider 配置和模型凭据。
 
+### Provider 配置
+
+最快的方式是把当前这台机器已经能用的 Provider 配置复制过去：
+
+1. 关闭当前机器和服务器上的 ZCode。
+2. 把当前机器的 `%USERPROFILE%\.zcode\v2\provider_config.json` 复制到服务器**运行看门狗的那个用户**的同一路径。
+3. 确认文件里包含 `providerRules`、`baseUrl` 和 `apiKey`；这个文件含密钥，不要提交 Git 或发给别人。
+4. 启动 ZCode，确认模型列表能看到 `qwen3.8-flash`。
+
+如果手工新建，Provider 填：
+
+```text
+类型：OpenAI Chat Completions（OpenAI 兼容）
+Base URL：https://opencode.ai/zen/go/v1
+模型：qwen3.8-flash
+备用模型：deepseek-v4.1-flash
+API Key：从当前机器的 provider_config.json 里取，不要贴到聊天
+```
+
+QQ 机器人通过 `QQBOT_AGENT_MODEL=qwen3.8-flash` 使用这个模型；桥接会在 `runtime/` 里生成机器人专用 provider 配置，不修改桌面 ZCode 的模型选择。配置好后用上面的 CLI 命令测试，返回 `"response": "OK"` 即可。
+
 ## 3. 复制哪些文件
 
 复制整个 `QQbot` 源码目录，但排除：

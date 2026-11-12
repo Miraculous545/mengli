@@ -26,7 +26,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\QQbot\deploy\deploy-serve
 
 ## 必要的手工项
 
-- ZCode 登录和 Provider 配置无法打进包，必须在服务器上完成。
+- ZCode 登录和 Provider 配置无法打进包，必须在服务器上完成。最快是把当前机器 `%USERPROFILE%\.zcode\v2\provider_config.json` 复制到服务器同一用户目录；手工新建时使用 OpenAI Chat Completions，Base URL 填 `https://opencode.ai/zen/go/v1`，模型填 `qwen3.8-flash`。
 - 密钥不会包含在压缩包里；脚本会交互式询问，或读取当前用户已有的环境变量。
 - 开机任务需要当前 Windows 账号密码；如果账号没有密码、使用 Microsoft 账号导致注册失败，可以改用 `-LogonTask` 并把服务器配置为自动登录。
 - 监控页只监听 `127.0.0.1:8765`，不要暴露公网。
