@@ -2396,6 +2396,23 @@ async function getMengliBinding(message) {
   return binding
 }
 
+// 只按当前群/私聊的 bindingKey 判断是否重复绑定，不拿其它群或私聊的绑定来拦截。
+async function getExactMengliBindingState(message) {
+  if (!mengliSiteConfigured() || !message?.userId || !message?.peerId) {
+    return { binding: null, error: null }
+  }
+  const key = mengliBindingKeyOf(message)
+  const cached = mengliBindingCache.get(key)
+  if (cached?.binding) return { binding: cached.binding, error: null }
+  try {
+    const binding = await lookupMengliBinding(key, { userId: message.userId })
+    if (binding) rememberMengliBinding(key, binding)
+    return { binding: binding || null, error: null }
+  } catch (error) {
+    return { binding: null, error: describeError(error).slice(0, 200) }
+  }
+}
+
 function getCachedMengliBinding(message) {
   if (!message?.userId) return null
   const key = mengliBindingKeyOf(message)
@@ -3269,6 +3286,15 @@ async function handleCommand(message, text) {
     refreshSettings()
     if (!mengliSiteConfigured()) {
       await sendText(message, '皮肤站梦璃插件还没配置推送 token，暂时不能绑定。')
+      return true
+    }
+    const existingState = await getExactMengliBindingState(message)
+    if (existingState.error) {
+      await sendText(message, '皮肤站绑定状态查询失败，稍后再发一次 /绑定账号。')
+      return true
+    }
+    if (existingState.binding) {
+      await sendText(message, `不行哦，这个群/私聊已经绑定过皮肤站账号「${bindingDisplayName(existingState.binding)}」了，不能重复绑定。`, { maxChunks: 1 })
       return true
     }
     const code = text.slice(command.length).trim()
