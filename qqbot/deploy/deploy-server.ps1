@@ -2,7 +2,8 @@
   [switch]$DryRun,
   [switch]$NonInteractive,
   [switch]$SkipDeps,
-  [switch]$SkipTask
+  [switch]$SkipTask,
+  [switch]$LogonTask
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,6 +52,14 @@ function Get-EnvValue([string]$name, [switch]$Secret) {
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
   }
   return Read-Host "请输入 $name"
+}
+
+function Read-WindowsPassword {
+  if ($DryRun -or $NonInteractive) { return '' }
+  $secure = Read-Host "请输入当前 Windows 账号 $env:USERNAME 的登录密码（只用于创建开机任务，不会写入文件）" -AsSecureString
+  $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+  try { return [Runtime.InteropServices.Marshal]::PtrToStringAuto($ptr) }
+  finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
 }
 
 function Set-UserEnv([string]$name, [string]$value) {
@@ -272,20 +281,39 @@ if ($alreadyRunning) {
 }
 
 if (-not $SkipTask) {
-  Write-Step '注册登录启动任务'
+  Write-Step '注册开机启动任务'
+  $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument (
+    '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + (Join-Path $root 'watchdog.ps1') + '"'
+  )
+  $taskUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
   if ($DryRun) {
     Write-Host '    [dry-run] 跳过 Register-ScheduledTask' -ForegroundColor DarkGray
-  } else {
+  } elseif ($LogonTask) {
     try {
-      $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument (
-        '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + (Join-Path $root 'watchdog.ps1') + '"'
-      )
       $trigger = New-ScheduledTaskTrigger -AtLogOn
-      Register-ScheduledTask -TaskName 'Mengli QQ Bot' -Action $action -Trigger $trigger -User $env:USERNAME -Force | Out-Null
+      Register-ScheduledTask -TaskName 'Mengli QQ Bot' -Action $action -Trigger $trigger -User $taskUser -Force | Out-Null
       Write-Host '    已注册任务计划：Mengli QQ Bot（登录时启动）' -ForegroundColor Green
     } catch {
-      Write-Warn "自动注册任务失败：$($_.Exception.Message)"
-      Write-Warn '请手动用任务计划程序启动 watchdog.ps1，或把触发器设为“启动时/登录时”。'
+      Write-Warn "自动注册登录任务失败：$($_.Exception.Message)"
+      Write-Warn '请手动用任务计划程序启动 watchdog.ps1。'
+    }
+  } elseif ($NonInteractive) {
+    Write-Warn '非交互模式无法注册开机任务：任务计划需要当前 Windows 账号密码。'
+    Write-Warn '请手动创建“开机时启动、不管用户是否登录都运行”的任务，或改用 -LogonTask 并配置自动登录。'
+  } else {
+    $password = Read-WindowsPassword
+    if (-not $password) {
+      Write-Warn '没有输入 Windows 密码，跳过开机任务；请手动创建任务计划。'
+    } else {
+      try {
+        $trigger = New-ScheduledTaskTrigger -AtStartup
+        $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+        Register-ScheduledTask -TaskName 'Mengli QQ Bot' -Action $action -Trigger $trigger -Settings $settings -User $taskUser -Password $password -RunLevel Limited -Force | Out-Null
+        Write-Host '    已注册任务计划：Mengli QQ Bot（开机时启动，不需要登录）' -ForegroundColor Green
+      } catch {
+        Write-Warn "自动注册开机任务失败：$($_.Exception.Message)"
+        Write-Warn '请手动用任务计划程序启动 watchdog.ps1，并设置“开机时启动、不管用户是否登录都要运行”。'
+      }
     }
   }
 }
@@ -322,4 +350,4 @@ Write-Host "监控：http://127.0.0.1:8765/（只在本机/远程桌面内访问
 Write-Host "日志：runtime\agent-bridge.log、runtime\watchdog.log"
 Write-Host "QQ 群测试：@梦璃 发 /我的记忆、/服务器、/我的画像"
 Write-Host ""
-Write-Host "注意：Task Scheduler 目前注册为“登录时启动”。如果服务器重启后不自动登录，请在任务计划程序里改成“不管用户是否登录都要运行”，或配置自动登录/开机任务。"
+Write-Host "注意：默认注册为“开机时启动、不管用户是否登录都要运行”。如果没有输入 Windows 密码或注册失败，请手动在任务计划程序里设置同样的触发器和登录选项。"

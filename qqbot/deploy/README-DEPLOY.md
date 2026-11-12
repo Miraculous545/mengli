@@ -21,14 +21,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\QQbot\deploy\deploy-serve
 - 把包内 `runtime-data/` 的 `memory.db`、绑定和设置导入 `runtime/`；
 - 提示输入 QQ/皮肤站密钥并写入当前用户环境变量；
 - 启动看门狗；
-- 注册“登录时启动”的任务计划；
+- 注册“开机时启动、不管用户是否登录都要运行”的任务计划（会询问一次当前 Windows 账号密码）；
 - 检查 `http://127.0.0.1:8765/api/health`。
 
 ## 必要的手工项
 
 - ZCode 登录和 Provider 配置无法打进包，必须在服务器上完成。
 - 密钥不会包含在压缩包里；脚本会交互式询问，或读取当前用户已有的环境变量。
-- 如果服务器重启后不自动登录，请在任务计划程序里把 `Mengli QQ Bot` 改成“不管用户是否登录都要运行”，或配置自动登录。
+- 开机任务需要当前 Windows 账号密码；如果账号没有密码、使用 Microsoft 账号导致注册失败，可以改用 `-LogonTask` 并把服务器配置为自动登录。
 - 监控页只监听 `127.0.0.1:8765`，不要暴露公网。
 
 ## 包内数据
@@ -66,3 +66,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\build-deploy-packag
 - `-NonInteractive`：不提示输入，要求所需环境变量已配置。
 - `-SkipDeps`：不自动尝试安装 Node/Python。
 - `-SkipTask`：不注册任务计划。
+- `-LogonTask`：改为注册“登录时启动”，适用于服务器自动登录、但无法提供 Windows 密码的情况。

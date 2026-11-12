@@ -63,9 +63,11 @@ $firstRun = @'
 3. 以该用户打开 PowerShell（建议管理员），运行：
    powershell -NoProfile -ExecutionPolicy Bypass -File C:\QQbot\deploy\deploy-server.ps1
 4. 按提示输入 AppID/AppSecret/皮肤站 API key/推送 token；脚本会完成
-   Python venv、记忆迁移、环境变量、看门狗和登录启动任务。
+   Python venv、记忆迁移、环境变量、看门狗和开机启动任务。
+   注册开机任务时会询问一次当前 Windows 账号密码。
 5. 打开 http://127.0.0.1:8765/api/health 确认 ok。
-6. 如果服务器重启后不自动登录，请把任务计划改成“不管用户是否登录都要运行”。
+6. 如果账号没有密码或任务注册失败，请手动创建“开机时启动、不管用户是否登录都要运行”的任务，
+   或使用 -LogonTask 并配置 Windows 自动登录。
 
 这个包可能包含 runtime-data/memory.db 和绑定缓存，里面有群友聊天数据，不要公开分享。
 '@
