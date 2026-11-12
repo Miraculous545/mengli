@@ -4,6 +4,8 @@
 
 它调用的是同一套 ZCode CLI、模型和配置，但每个 QQ 会话是新开的 agent 会话，不共享桌面里这个对话的记忆。默认工作目录是 `QQbot/workspace`；需要它直接改插件仓库时把 `QQBOT_AGENT_CWD` 指到仓库目录。默认跟随 ZCode 的模型；可用 `QQBOT_AGENT_MODEL` 给机器人单独指定更快的模型，不影响桌面配置。
 
+服务器部署、数据迁移和开机自启见 [DEPLOY.md](DEPLOY.md)。
+
 ## 启动
 
 凭据只从环境变量读取，不写入仓库：
