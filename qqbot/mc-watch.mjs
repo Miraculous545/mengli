@@ -59,9 +59,9 @@ function limitedPlayerList(names, onlineCount, limit) {
   return `${playerList(shown)}${total > shown.length ? ` 等 ${total} 人` : ''}`
 }
 
-function countChangeLine(server, previousCount, currentCount) {
+function countChangeLine(server, previousCount, currentCount, note = '') {
   const delta = Number(currentCount) - Number(previousCount)
-  return `${server.name} 在线人数 ${previousCount} → ${currentCount} 人${delta > 0 ? `（增加 ${delta}）` : `（减少 ${Math.abs(delta)}）`}。`
+  return `${server.name} 在线人数 ${previousCount} → ${currentCount} 人${delta > 0 ? `（增加 ${delta}）` : `（减少 ${Math.abs(delta)}）`}${note}。`
 }
 
 function diffPlayers(previousNames, names) {
@@ -212,7 +212,7 @@ export function applyServerObservation({
     }
     return {
       next: { ...next, players: [], pendingPolls: 0, pendingSince: 0, countOnlyAt: now },
-      lines: [countChangeLine(server, previousCount, currentCount)],
+      lines: [countChangeLine(server, previousCount, currentCount, '（服务器未上报玩家名单）')],
       suppressed: false,
       offlinePolls: 0,
       confirmedOffline,

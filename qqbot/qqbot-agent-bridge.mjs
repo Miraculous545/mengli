@@ -3078,7 +3078,7 @@ async function handleCommand(message, text) {
           if (names.length) {
             lines.push(formatServerPlayers(names, onlineCount, playerLimit))
           } else if (onlineCount > 0) {
-            lines.push('· 玩家：暂无名单')
+            lines.push('· 玩家：暂无名单（服务器未上报）')
           }
         }
       }
