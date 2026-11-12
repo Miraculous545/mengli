@@ -1098,15 +1098,33 @@ function formatPlaytimeReport(data, binding) {
   return lines.join('\n')
 }
 
-function serverEndpoint(server) {
-  const host = String(server?.host || '').trim()
-  const port = Number(server?.port)
-  if (host && Number.isInteger(port) && port > 0 && port <= 65535) return { host, port }
-  const match = String(server?.address || '').trim().match(/^([^:]+):(\d+)$/)
-  if (!match) return null
-  const fallbackPort = Number(match[2])
-  if (!Number.isInteger(fallbackPort) || fallbackPort < 1 || fallbackPort > 65535) return null
-  return { host: match[1], port: fallbackPort }
+function parseServerEndpoint(value, fallbackPort = 25565) {
+  const text = String(value || '').trim()
+  if (!text) return null
+  const match = text.match(/^([^:]+):(\d+)$/)
+  const host = match ? match[1] : text
+  const port = Number(match ? match[2] : fallbackPort)
+  if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null
+  return { host, port }
+}
+
+function serverEndpoints(server) {
+  const endpoints = []
+  const seen = new Set()
+  const add = (host, port, fallbackPort = 25565) => {
+    const endpoint = parseServerEndpoint(host && port ? `${host}:${port}` : host, fallbackPort)
+    if (!endpoint) return
+    const key = `${endpoint.host}:${endpoint.port}`
+    if (seen.has(key)) return
+    seen.add(key)
+    endpoints.push(endpoint)
+  }
+  add(server?.host, server?.port)
+  for (const alt of Array.isArray(server?.altHosts) ? server.altHosts : []) {
+    add(alt)
+  }
+  add(server?.address)
+  return endpoints
 }
 
 async function getOnlineNamesByServer(status) {
@@ -1126,16 +1144,22 @@ async function getOnlineNamesByServer(status) {
   for (const server of status.servers || []) {
     if (!server.online || Number(server.onlineCount) <= 0) continue
     if ((namesByServer.get(String(server.id)) || []).length) continue
-    const endpoint = serverEndpoint(server)
-    if (!endpoint) continue
-    tasks.push(getMcPlayerSample({ ...endpoint, timeoutMs: 3000 }).then(sample => {
-      const expected = Math.max(Number(server.onlineCount) || 0, Number(sample.online) || 0)
-      if (sample.names.length && sample.names.length >= expected) {
-        namesByServer.set(String(server.id), sample.names)
+    const endpoints = serverEndpoints(server)
+    if (!endpoints.length) continue
+    tasks.push((async () => {
+      for (const endpoint of endpoints) {
+        try {
+          const sample = await getMcPlayerSample({ ...endpoint, timeoutMs: 3000 })
+          const expected = Math.max(Number(server.onlineCount) || 0, Number(sample.online) || 0)
+          if (sample.names.length && sample.names.length >= expected) {
+            namesByServer.set(String(server.id), sample.names)
+            return
+          }
+        } catch {
+          // 换下一个地址/备用线路
+        }
       }
-    }).catch(() => {
-      // 单台服务器采样失败不影响其他服务器
-    }))
+    })())
   }
   if (tasks.length) await Promise.all(tasks)
   return namesByServer

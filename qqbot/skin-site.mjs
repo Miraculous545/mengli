@@ -82,6 +82,9 @@ export async function getMcServerStatus() {
       address: server.address || '',
       host: server.host || '',
       port: Number(server.port || 25565),
+      altHosts: Array.isArray(server.altHosts)
+        ? server.altHosts.map(item => String(item || '').trim()).filter(Boolean)
+        : [],
       online: Boolean(server.online),
       onlineCount: Number(server.onlineCount || 0),
       maxPlayers: Number(server.maxPlayers || 0),

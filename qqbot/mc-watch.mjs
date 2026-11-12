@@ -40,16 +40,31 @@ function playerList(names) {
   return names.join('、')
 }
 
-function endpointOf(server) {
-  const host = String(server?.host || '').trim()
-  const port = Number(server?.port)
-  if (host && Number.isInteger(port) && port > 0 && port <= 65535) return { host, port }
-  const address = String(server?.address || '').trim()
-  const match = address.match(/^([^:]+):(\d+)$/)
-  if (!match) return null
-  const fallbackPort = Number(match[2])
-  if (!Number.isInteger(fallbackPort) || fallbackPort < 1 || fallbackPort > 65535) return null
-  return { host: match[1], port: fallbackPort }
+function parseEndpoint(value, fallbackPort = 25565) {
+  const text = String(value || '').trim()
+  if (!text) return null
+  const match = text.match(/^([^:]+):(\d+)$/)
+  const host = match ? match[1] : text
+  const port = Number(match ? match[2] : fallbackPort)
+  if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null
+  return { host, port }
+}
+
+function endpointsOf(server) {
+  const endpoints = []
+  const seen = new Set()
+  const add = (host, port, fallbackPort = 25565) => {
+    const endpoint = parseEndpoint(host && port ? `${host}:${port}` : host, fallbackPort)
+    if (!endpoint) return
+    const key = `${endpoint.host}:${endpoint.port}`
+    if (seen.has(key)) return
+    seen.add(key)
+    endpoints.push(endpoint)
+  }
+  add(server?.host, server?.port)
+  for (const alt of Array.isArray(server?.altHosts) ? server.altHosts : []) add(alt)
+  add(server?.address)
+  return endpoints
 }
 
 function limitedPlayerList(names, onlineCount, limit) {
@@ -279,16 +294,22 @@ export function startMcWatch({ root, groups, intervalMs = 20000, send, log, play
       const knownNames = players.get(id) || []
       if (!onlineCount && !knownNames.length) continue
       if (knownNames.length && knownNames.length >= onlineCount) continue
-      const endpoint = endpointOf(server)
-      if (!endpoint) continue
-      sampleTasks.push(getMcPlayerSample({ ...endpoint, timeoutMs: 3000 }).then(sample => {
-        const expected = Math.max(onlineCount, Number(sample.online) || 0)
-        if (sample.names.length && sample.names.length >= expected) {
-          players.set(id, sample.names)
+      const endpoints = endpointsOf(server)
+      if (!endpoints.length) continue
+      sampleTasks.push((async () => {
+        for (const endpoint of endpoints) {
+          try {
+            const sample = await getMcPlayerSample({ ...endpoint, timeoutMs: 3000 })
+            const expected = Math.max(onlineCount, Number(sample.online) || 0)
+            if (sample.names.length && sample.names.length >= expected) {
+              players.set(id, sample.names)
+              return
+            }
+          } catch {
+            // 主地址失败或没有 sample 时继续尝试次 IP/备用线路
+          }
         }
-      }).catch(() => {
-        // 采样失败时继续使用人数兜底
-      }))
+      })())
     }
     if (sampleTasks.length) await Promise.all(sampleTasks)
 

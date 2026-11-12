@@ -271,7 +271,7 @@ setx QQBOT_MC_WATCH_INTERVAL_MS 20000
 - 站点 ping 只有约 2 秒的探测窗口，网络抖动时可能瞬时返回离线。默认连续 2 次探测到离线才播报“已离线”；真实停服会晚一轮（约 40 秒）播报，短暂抖动不会刷假离线。
 - 人数变化会先等最多 3 轮（约 1 分钟）确认玩家名单；拿到名单后只播一次带玩家名的进出，名单持续不可用才退回人数播报，避免“先报减少 1、再报某某退出”的两条重复消息。
 - 如果配置了管理员登录 Cookie，会进一步播报“冒险家 X 进入了/离开了服务器”并列出在线玩家。
-- 站点 `online_players` 为空时，桥接会直接 ping 服务器读取 `players.sample`，补全当前在线名单；只有样本数量覆盖全部在线人数时才用来判断进出，避免截断名单造成假进出。服务端隐藏 sample 时才退回人数播报。
+- 站点 `online_players` 为空时，桥接会直接 ping 服务器读取 `players.sample`，补全当前在线名单；只有样本数量覆盖全部在线人数时才用来判断进出，避免截断名单造成假进出。主地址没有 sample 时，桥接会依次尝试站点配置的“次 IP/备用线路”（例如 Velocity 代理背后的 Paper 后端），这样代理隐藏 sample 也能拿到后端玩家名。两边都拿不到时才退回人数播报。
 - 在线时长和完整在线名单优先来自皮肤站 `minecraft-server` 的心跳数据；MC 服务端安装 `game-integrations` 里的 `minecraft-server-report` 插件并按 `server-id + api-key` 上报后，进出播报最稳定。没有心跳时，桥接会用服务器 status ping 的 `players.sample` 兜底；两者都拿不到才退回人数播报。`mengli` 1.5.3 会只读这些数据，通过 `/api/plugins/mengli/mc-players` 和 `/api/plugins/mengli/playtime` 提供给桥接。
 - 管理员 Cookie 只从环境变量 `SWUSTMC_ADMIN_COOKIE` 读取，不写入仓库；会过期，过期后自动退回人数播报。
 - 获取 Cookie：登录皮肤站后台，DevTools → Network → 任意 `/api/plugins/minecraft-server/admin/overview` 请求 → Request Headers → 复制 `Cookie` 的完整值。更稳妥的是给机器人单独建一个管理员服务账号，避免使用个人登录态。
