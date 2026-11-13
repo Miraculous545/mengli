@@ -1,5 +1,5 @@
 // 把 QQ 群事件日志和群友记忆快照推送到皮肤站的 mengli 插件。
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const DEFAULT_ENDPOINT = 'https://www.swustmc.com/api/plugins/mengli/ingest'
@@ -80,6 +80,84 @@ function applyRemoteSettings(file, settings, log) {
     log(`梦璃站点设置写入失败：${String(error.message || error).slice(0, 160)}`)
     return false
   }
+}
+
+function readAppliedOverrides(file) {
+  try {
+    const data = JSON.parse(readFileSync(file, 'utf8'))
+    return data && typeof data === 'object' ? data : {}
+  } catch {
+    return {}
+  }
+}
+
+function readLocalPersonaSeed(root) {
+  try {
+    const file = join(root, 'persona', 'mc-mengli.md')
+    if (!existsSync(file)) return ''
+    return readFileSync(file, 'utf8')
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .trim()
+      .slice(0, 6000)
+  } catch {
+    return ''
+  }
+}
+
+function applyRemotePersona(root, persona, log) {
+  if (typeof persona !== 'string') return
+  const file = join(root, 'runtime', 'persona-override.md')
+  const text = persona.trim()
+  try {
+    if (!text) {
+      if (existsSync(file)) {
+        unlinkSync(file)
+        log('梦璃站点人设已清空，恢复本地人设')
+      }
+      return
+    }
+    if (existsSync(file) && readFileSync(file, 'utf8') === text) return
+    writeFileSync(file, text)
+    log('梦璃站点人设已同步到机器人')
+  } catch (error) {
+    log(`梦璃站点人设同步失败：${String(error.message || error).slice(0, 160)}`)
+  }
+}
+
+function applyRemoteMemoryOverrides(root, memoryStore, overrides, log) {
+  if (!Array.isArray(overrides) || !overrides.length) return
+  const file = join(root, 'runtime', 'memory-overrides-applied.json')
+  const applied = readAppliedOverrides(file)
+  let changed = 0
+  for (const override of overrides) {
+    if (!override || typeof override !== 'object') continue
+    const numericId = Number(override.memberId ?? override.id)
+    let member = Number.isInteger(numericId) && numericId > 0 ? memoryStore.getMember(numericId) : null
+    if (!member && override.userOpenid) {
+      const scopeKey = String(override.scopeKey || 'global')
+      member = memoryStore.findMember(scopeKey === 'global' ? '' : scopeKey, String(override.userOpenid))
+    }
+    if (!member) continue
+    const key = String(member.id)
+    const revision = String(override.updatedAt || '')
+    if (revision ? applied[key] === revision : applied[key]) continue
+    const fields = {}
+    for (const field of ['summary', 'personality', 'interactionStyle']) {
+      if (typeof override[field] === 'string') fields[field] = override[field]
+    }
+    if (Array.isArray(override.tags)) fields.tags = override.tags
+    if (Object.keys(fields).length) memoryStore.updateProfile(member.id, fields)
+    if (Array.isArray(override.notes)) memoryStore.replaceNotes(member.id, override.notes)
+    applied[key] = revision || new Date().toISOString()
+    changed += 1
+  }
+  if (!changed) return
+  try {
+    writeFileSync(file, JSON.stringify(applied, null, 2))
+  } catch (error) {
+    log(`梦璃记忆覆盖记录写入失败：${String(error.message || error).slice(0, 160)}`)
+  }
+  log(`梦璃站点记忆修改已同步到本地：${changed} 位群友`)
 }
 
 function readNewEvents(file, offset) {
@@ -178,6 +256,7 @@ export function startMengliPush({ root, memoryStore, log }) {
         logs: batch.events,
         settings: readLocalSettings(settingsFile),
         bindings,
+        personaSeed: readLocalPersonaSeed(root),
         pushedAt: new Date().toISOString(),
       }
       if (includeMemory) payload.memory = memorySnapshot(memoryStore)
@@ -200,6 +279,8 @@ export function startMengliPush({ root, memoryStore, log }) {
       }
       const data = result?.data ?? result
       applyRemoteSettings(settingsFile, data?.settings, log)
+      applyRemotePersona(root, data?.persona, log)
+      applyRemoteMemoryOverrides(root, memoryStore, data?.memoryOverrides, log)
       state = {
         offset: batch.nextOffset,
         lastMemoryAt: includeMemory ? now : state.lastMemoryAt,

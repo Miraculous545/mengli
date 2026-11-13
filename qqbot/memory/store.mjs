@@ -711,6 +711,31 @@ export class MemoryStore {
     return { id: Number(result.lastInsertRowid), content: text, source }
   }
 
+  replaceNotes(memberId, notes, source = 'site') {
+    const id = Number(memberId)
+    if (!id) return 0
+    const clean = (Array.isArray(notes) ? notes : [])
+      .map(item => clampText(item && typeof item === 'object' ? item.content : item, MAX_NOTE))
+      .filter(Boolean)
+      .slice(0, 20)
+    const now = Date.now()
+    this.db.exec('BEGIN')
+    try {
+      this.db.prepare('DELETE FROM member_notes WHERE member_id = ?').run(id)
+      const insert = this.db.prepare(`
+        INSERT INTO member_notes (member_id, content, source, created_at) VALUES (?, ?, ?, ?)
+      `)
+      for (const content of clean) insert.run(id, content, source, now)
+      this.db.prepare('UPDATE members SET last_activity_at = ?, updated_at = ? WHERE id = ?')
+        .run(now, now, id)
+      this.db.exec('COMMIT')
+      return clean.length
+    } catch (error) {
+      try { this.db.exec('ROLLBACK') } catch { /* ignore */ }
+      throw error
+    }
+  }
+
   deleteNote(id) {
     const result = this.db.prepare('DELETE FROM member_notes WHERE id = ?').run(Number(id))
     return Number(result.changes) > 0

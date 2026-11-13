@@ -31,6 +31,12 @@ public final class MengliPlugin implements SkinPlugin {
     private static final int MAX_BATCH = 300;
     private static final long BIND_CODE_TTL_MS = 10 * 60 * 1000;
     private static final int MAX_BINDINGS = 5000;
+    private static final int MAX_PERSONA = 6000;
+    private static final int MAX_PROFILE_TEXT = 1000;
+    private static final int MAX_TAGS = 20;
+    private static final int MAX_TAG_LENGTH = 50;
+    private static final int MAX_NOTES = 20;
+    private static final int MAX_NOTE_LENGTH = 500;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private PluginContext ctx;
@@ -58,6 +64,9 @@ public final class MengliPlugin implements SkinPlugin {
         ctx.registerAdminRoute("GET", "/summary", this::summary);
         ctx.registerAdminRoute("GET", "/settings", this::getSettings);
         ctx.registerAdminRoute("POST", "/settings", this::saveSettings);
+        ctx.registerAdminRoute("GET", "/persona", this::getPersona);
+        ctx.registerAdminRoute("POST", "/persona", this::savePersona);
+        ctx.registerAdminRoute("POST", "/memory/member", this::saveMemoryMember);
     }
 
     private Object ingest(PluginRequest request) throws Exception {
@@ -68,6 +77,13 @@ public final class MengliPlugin implements SkinPlugin {
         synchronized (lock) {
             if (ctx.getData("settings") == null && body.get("settings") instanceof Map<?, ?> incomingSettings) {
                 ctx.setData("settings", sanitizeSettings(asMap(incomingSettings), defaultSettings()));
+            }
+            if (!Boolean.TRUE.equals(ctx.getData("personaInitialized"))
+                    && body.get("personaSeed") instanceof String personaSeed
+                    && !personaSeed.isBlank()) {
+                ctx.setData("persona", clampText(personaSeed, MAX_PERSONA));
+                ctx.setData("personaInitialized", true);
+                ctx.setData("personaUpdatedAt", Instant.now().toString());
             }
             List<Map<String, Object>> existing = asMapList(ctx.getData("logs"));
             List<Map<String, Object>> incoming = asMapList(body.get("logs"));
@@ -109,6 +125,9 @@ public final class MengliPlugin implements SkinPlugin {
             result.put("logTotal", existing.size());
             result.put("updatedAt", updatedAt);
             result.put("settings", currentSettings());
+            result.put("persona", currentPersona());
+            result.put("personaUpdatedAt", ctx.getData("personaUpdatedAt"));
+            result.put("memoryOverrides", asMapList(ctx.getData("memory_overrides")));
             return result;
         }
     }
@@ -254,8 +273,8 @@ public final class MengliPlugin implements SkinPlugin {
             if (key != null) bindingKeys.add(String.valueOf(key));
         }
         List<Map<String, Object>> own = new ArrayList<>();
-        Object memory = ctx.getData("memory");
-        if (memory instanceof Map<?, ?> map && map.get("members") instanceof List<?> members) {
+        Map<String, Object> memory = memoryWithOverrides();
+        if (memory.get("members") instanceof List<?> members) {
             for (Object value : members) {
                 if (!(value instanceof Map<?, ?> memberMap)) continue;
                 boolean matched = false;
@@ -456,12 +475,34 @@ public final class MengliPlugin implements SkinPlugin {
     }
 
     private Object memory(PluginRequest request) {
-        Object memory = ctx.getData("memory");
-        if (memory instanceof Map<?, ?> map) return asMap(map);
-        Map<String, Object> empty = new LinkedHashMap<>();
-        empty.put("members", List.of());
-        empty.put("updatedAt", ctx.getData("updatedAt"));
-        return empty;
+        Map<String, Object> result = memoryWithOverrides();
+        if (!result.containsKey("members")) result.put("members", List.of());
+        result.putIfAbsent("updatedAt", ctx.getData("updatedAt"));
+        return result;
+    }
+
+    private Map<String, Object> memoryWithOverrides() {
+        Object stored = ctx.getData("memory");
+        Map<String, Object> result = stored instanceof Map<?, ?> map ? asMap(map) : new LinkedHashMap<>();
+        List<Map<String, Object>> members = asMapList(result.get("members"));
+        Map<String, Map<String, Object>> overrides = new LinkedHashMap<>();
+        for (Map<String, Object> override : asMapList(ctx.getData("memory_overrides"))) {
+            String id = String.valueOf(override.get("memberId") == null ? "" : override.get("memberId")).trim();
+            if (!id.isEmpty()) overrides.put(id, override);
+        }
+        for (Map<String, Object> member : members) {
+            Map<String, Object> override = overrides.get(String.valueOf(member.get("id")));
+            if (override == null) continue;
+            member.put("summary", override.getOrDefault("summary", member.get("summary")));
+            member.put("personality", override.getOrDefault("personality", member.get("personality")));
+            member.put("interactionStyle", override.getOrDefault("interactionStyle", member.get("interactionStyle")));
+            member.put("tags", override.getOrDefault("tags", member.get("tags")));
+            if (override.containsKey("notes")) member.put("notes", override.get("notes"));
+            member.put("manualOverride", true);
+            member.put("overrideUpdatedAt", override.get("updatedAt"));
+        }
+        result.put("members", members);
+        return result;
     }
 
     private Object summary(PluginRequest request) {
@@ -494,6 +535,112 @@ public final class MengliPlugin implements SkinPlugin {
         result.put("settings", next);
         result.put("updatedAt", ctx.getData("settingsUpdatedAt"));
         return result;
+    }
+
+    private String currentPersona() {
+        Object value = ctx.getData("persona");
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private Object getPersona(PluginRequest request) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("persona", currentPersona());
+        result.put("updatedAt", ctx.getData("personaUpdatedAt"));
+        result.put("initialized", Boolean.TRUE.equals(ctx.getData("personaInitialized")));
+        return result;
+    }
+
+    private Object savePersona(PluginRequest request) throws Exception {
+        Map<String, Object> body = request.json();
+        String persona = clampText(body == null ? "" : String.valueOf(body.get("persona") == null ? "" : body.get("persona")), MAX_PERSONA);
+        synchronized (lock) {
+            ctx.setData("persona", persona);
+            ctx.setData("personaInitialized", true);
+            ctx.setData("personaUpdatedAt", Instant.now().toString());
+        }
+        return getPersona(request);
+    }
+
+    private Object saveMemoryMember(PluginRequest request) throws Exception {
+        Map<String, Object> body = request.json();
+        String id = String.valueOf(body == null ? "" : body.get("memberId") == null ? body.get("id") : body.get("memberId")).trim();
+        if (id.isEmpty()) throw Web.badRequest("缺少群友记忆 ID");
+        synchronized (lock) {
+            List<Map<String, Object>> overrides = asMapList(ctx.getData("memory_overrides"));
+            if (body != null && Boolean.TRUE.equals(body.get("reset"))) {
+                overrides.removeIf(item -> id.equals(String.valueOf(item.get("memberId"))));
+                ctx.setData("memory_overrides", overrides);
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("reset", true);
+                result.put("memberId", id);
+                return result;
+            }
+            Map<String, Object> target = findMemoryMember(id);
+            if (target == null) throw Web.notFound("群友记忆不存在，等机器人下一次推送后再试");
+            Map<String, Object> override = new LinkedHashMap<>();
+            override.put("memberId", id);
+            override.put("userOpenid", target.get("userOpenid"));
+            override.put("scopeKey", target.get("scopeKey"));
+            override.put("bindingKey", target.get("bindingKey"));
+            override.put("summary", clampText(body.containsKey("summary") ? body.get("summary") : target.get("summary"), MAX_PROFILE_TEXT));
+            override.put("personality", clampText(body.containsKey("personality") ? body.get("personality") : target.get("personality"), MAX_PROFILE_TEXT));
+            override.put("interactionStyle", clampText(body.containsKey("interactionStyle") ? body.get("interactionStyle") : target.get("interactionStyle"), MAX_PROFILE_TEXT));
+            override.put("tags", body.containsKey("tags") ? normalizeTags(body.get("tags")) : normalizeTags(target.get("tags")));
+            if (body.containsKey("notes")) override.put("notes", normalizeNotes(body.get("notes")));
+            override.put("updatedAt", Instant.now().toString());
+            overrides.removeIf(item -> id.equals(String.valueOf(item.get("memberId"))));
+            overrides.add(override);
+            ctx.setData("memory_overrides", overrides);
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("override", override);
+            result.put("memberId", id);
+            return result;
+        }
+    }
+
+    private Map<String, Object> findMemoryMember(String id) {
+        Object memory = ctx.getData("memory");
+        if (!(memory instanceof Map<?, ?> map)) return null;
+        for (Map<String, Object> member : asMapList(map.get("members"))) {
+            if (id.equals(String.valueOf(member.get("id")))) return member;
+        }
+        return null;
+    }
+
+    private static String clampText(Object value, int max) {
+        String text = value == null ? "" : String.valueOf(value).trim();
+        return text.length() > max ? text.substring(0, max) : text;
+    }
+
+    private static List<String> normalizeTags(Object value) {
+        List<String> tags = new ArrayList<>();
+        Iterable<?> items = value instanceof List<?> list ? list
+                : value instanceof String text ? List.of(text.split("[,，\\n\\r]+")) : List.of();
+        for (Object item : items) {
+            String tag = clampText(item, MAX_TAG_LENGTH);
+            if (tag.isEmpty() || tags.contains(tag)) continue;
+            tags.add(tag);
+            if (tags.size() >= MAX_TAGS) break;
+        }
+        return tags;
+    }
+
+    private static List<Map<String, Object>> normalizeNotes(Object value) {
+        List<Map<String, Object>> notes = new ArrayList<>();
+        Iterable<?> items = value instanceof List<?> list ? list
+                : value instanceof String text ? List.of(text.split("[\\n\\r]+")) : List.of();
+        for (Object item : items) {
+            String content = item instanceof Map<?, ?> map ? String.valueOf(map.get("content") == null ? "" : map.get("content")) : String.valueOf(item);
+            content = clampText(content, MAX_NOTE_LENGTH);
+            if (content.isEmpty()) continue;
+            Map<String, Object> note = new LinkedHashMap<>();
+            note.put("content", content);
+            note.put("source", "site");
+            note.put("createdAt", Instant.now().toString());
+            notes.add(note);
+            if (notes.size() >= MAX_NOTES) break;
+        }
+        return notes;
     }
 
     private Map<String, Object> currentSettings() {

@@ -56,6 +56,16 @@ const STYLE = `
   .mengli-prob { min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
   .mengli-save { justify-self: start; border: 0; border-radius: 8px; padding: 10px 22px; background: #2563eb; color: #fff; cursor: pointer; font-weight: 700; margin-top: 10px; }
   .mengli-save:disabled { opacity: .5; cursor: wait; }
+  .mengli-persona { padding: 14px; display: grid; gap: 8px; border-bottom: 1px solid rgba(127,127,127,.14); }
+  .mengli-persona h3 { margin: 0; font-size: 16px; }
+  .mengli-persona textarea { width: 100%; min-height: 220px; resize: vertical; border: 1px solid var(--line, #d0d5dd); border-radius: 8px; padding: 9px 10px; background: transparent; color: inherit; font: inherit; font-size: 13px; line-height: 1.6; }
+  .mengli-memory-edit { border-top: 1px solid rgba(127,127,127,.14); padding-top: 8px; }
+  .mengli-memory-edit summary { cursor: pointer; color: #2563eb; font-size: 12px; }
+  .mengli-memory-edit form { display: grid; gap: 7px; margin-top: 8px; }
+  .mengli-memory-edit label { display: grid; gap: 3px; color: var(--muted, #667085); font-size: 11px; }
+  .mengli-memory-edit textarea, .mengli-memory-edit input[type=text] { width: 100%; border: 1px solid var(--line, #d0d5dd); border-radius: 8px; padding: 7px 9px; background: transparent; color: inherit; font: inherit; font-size: 12px; box-sizing: border-box; }
+  .mengli-memory-edit textarea { min-height: 62px; resize: vertical; line-height: 1.5; }
+  .mengli-memory-edit .mengli-save { margin-top: 2px; padding: 7px 14px; font-size: 12px; }
   @media (max-width: 780px) {
     .mengli-row { grid-template-columns: 92px 78px 1fr; }
     .mengli-row > div:nth-child(4) { display: none; }
@@ -257,8 +267,9 @@ function renderMemory(state) {
           const messages = member.recentMessages || []
           const searchText = [member.nickname, member.summary, member.personality, ...(member.aliases || [])]
             .filter(Boolean).join(' ').toLowerCase()
+          const noteText = notes.map(note => note?.content || '').filter(Boolean).join('\n')
           return `<article class="mengli-card" data-mengli-search="${esc(searchText)}">
-            <h3>${esc(member.nickname || '(未命名)')}</h3>
+            <h3>${esc(member.nickname || '(未命名)')}${member.manualOverride ? ' <span class="mengli-tag">人工覆盖</span>' : ''}</h3>
             <div class="mengli-muted">${esc(memoryScope(member))} · ${esc(member.observedMessageCount || 0)} 条发言 · 最近 ${esc(fmtTime(member.lastActivityAt))}</div>
             ${member.aliases?.length ? `<p><strong>别名：</strong>${member.aliases.map(a => `<span class="mengli-tag">${esc(a)}</span>`).join('')}</p>` : ''}
             ${member.summary ? `<p><strong>摘要：</strong>${esc(member.summary)}</p>` : ''}
@@ -267,6 +278,18 @@ function renderMemory(state) {
             ${member.tags?.length ? `<p>${member.tags.map(tag => `<span class="mengli-tag">${esc(tag)}</span>`).join('')}</p>` : ''}
             ${notes.length ? `<div><div class="mengli-muted">备注</div><ul class="mengli-list">${notes.slice(0, 5).map(note => `<li>${esc(note.content)}</li>`).join('')}</ul></div>` : ''}
             ${messages.length ? `<div><div class="mengli-muted">最近发言</div><ul class="mengli-list">${messages.slice(-4).map(item => `<li>${esc(item.content)}</li>`).join('')}</ul></div>` : ''}
+            <details class="mengli-memory-edit">
+              <summary>编辑画像</summary>
+              <form data-mengli-memory-form data-member-id="${esc(member.id)}">
+                <label>摘要<textarea name="summary">${esc(member.summary || '')}</textarea></label>
+                <label>人格<textarea name="personality">${esc(member.personality || '')}</textarea></label>
+                <label>互动风格<textarea name="interactionStyle">${esc(member.interactionStyle || '')}</textarea></label>
+                <label>标签（逗号分隔）<input type="text" name="tags" value="${esc((member.tags || []).join('，'))}" /></label>
+                <label>备注（每行一条）<textarea name="notes">${esc(noteText)}</textarea></label>
+                <button class="mengli-save" type="submit">保存修改</button>
+                <p class="mengli-muted">保存后会同步到机器人本地记忆，用于之后对话。</p>
+              </form>
+            </details>
           </article>`
         }).join('') : '<div class="mengli-empty">还没有群友记忆。</div>'}
       </div>
@@ -279,6 +302,14 @@ function renderSettings(state) {
   const probability = Math.round((Number(s.autoReplyProbability) || 0) * 100)
   return `
     <div class="mengli-panel">
+      <form class="mengli-persona" data-mengli-persona-form>
+        <h3>人设 / 提示词</h3>
+        <p class="mengli-muted">这里保存的是机器人下一轮对话使用的人设。留空保存表示恢复机器人本地人设；保存后约 15 秒内同步。</p>
+        <textarea name="persona" maxlength="6000" placeholder="还没有从机器人同步人设；保存后会覆盖本地人设。">${esc(state.persona || '')}</textarea>
+        <p class="mengli-muted">${state.personaUpdatedAt ? `上次保存：${esc(fmtTime(state.personaUpdatedAt))}` : '尚未在站点保存过人设'}</p>
+        <p class="mengli-error" data-mengli-persona-error hidden></p>
+        <button class="mengli-save" type="submit">保存人设</button>
+      </form>
       <form class="mengli-settings" data-mengli-settings-form>
         <div class="mengli-setting-row">
           <label>媒体链接解析<small>识别到 B站 / 抖音 / 小红书等支持平台的链接时，自动解析并发送媒体。</small></label>
@@ -419,6 +450,9 @@ export async function mount(root, ctx) {
     members: [],
     settings: {},
     settingsUpdatedAt: null,
+    persona: '',
+    personaUpdatedAt: null,
+    editing: false,
     bindStatus: null,
     bindCode: null,
     bindError: '',
@@ -449,6 +483,12 @@ export async function mount(root, ctx) {
 
   const body = root.querySelector('[data-mengli-body]')
   const meta = root.querySelector('[data-mengli-meta]')
+  body.addEventListener('focusin', event => {
+    if (event.target instanceof HTMLElement && event.target.matches('input, textarea')) state.editing = true
+  })
+  body.addEventListener('focusout', () => {
+    setTimeout(() => { state.editing = Boolean(body.querySelector('input:focus, textarea:focus')) }, 0)
+  })
 
   root.querySelectorAll('[data-mengli-tab]').forEach(button => {
     button.addEventListener('click', () => {
@@ -492,16 +532,19 @@ export async function mount(root, ctx) {
 
   async function loadAdmin() {
     try {
-      const [logs, memory, settingsData] = await Promise.all([
+      const [logs, memory, settingsData, personaData] = await Promise.all([
         ctx.api.get('/plugins/mengli/logs?limit=300'),
         ctx.api.get('/plugins/mengli/memory'),
         ctx.api.get('/plugins/mengli/settings'),
+        ctx.api.get('/plugins/mengli/persona').catch(() => ({})),
       ])
       state.logs = Array.isArray(logs?.items) ? logs.items : []
       state.logTotal = Number(logs?.total || state.logs.length)
       state.members = Array.isArray(memory?.members) ? memory.members : []
       state.settings = settingsData?.settings || {}
       state.settingsUpdatedAt = settingsData?.updatedAt || null
+      state.persona = personaData?.persona || ''
+      state.personaUpdatedAt = personaData?.updatedAt || null
       state.updatedAt = logs?.updatedAt || memory?.updatedAt || null
       state.error = ''
     } catch (error) {
@@ -584,6 +627,34 @@ export async function mount(root, ctx) {
         }
       })
     }
+    const personaForm = body.querySelector('[data-mengli-persona-form]')
+    if (personaForm) {
+      personaForm.addEventListener('submit', async event => {
+        event.preventDefault()
+        const errorEl = personaForm.querySelector('[data-mengli-persona-error]')
+        const button = personaForm.querySelector('.mengli-save')
+        if (errorEl) errorEl.hidden = true
+        if (button) button.disabled = true
+        try {
+          const result = await ctx.api.post('/plugins/mengli/persona', {
+            persona: personaForm.querySelector('[name="persona"]')?.value || '',
+          })
+          state.persona = result?.persona || ''
+          state.personaUpdatedAt = result?.updatedAt || new Date().toISOString()
+          state.editing = false
+          ctx.toast?.('人设已保存，桥接会在下一次推送时同步。', 'success')
+          render()
+        } catch (error) {
+          if (errorEl) {
+            errorEl.hidden = false
+            errorEl.textContent = error?.message || '保存人设失败'
+          }
+          ctx.toast?.(error?.message || '保存人设失败', 'error')
+        } finally {
+          if (button) button.disabled = false
+        }
+      })
+    }
     const settingsForm = body.querySelector('[data-mengli-settings-form]')
     if (settingsForm) {      const probability = settingsForm.querySelector('input[name="autoReplyProbability"]')
       const probabilityLabel = settingsForm.querySelector('[data-mengli-prob]')
@@ -629,11 +700,40 @@ export async function mount(root, ctx) {
         }
       })
     }
+    body.querySelectorAll('[data-mengli-memory-form]').forEach(form => {
+      const memberId = form.dataset.memberId
+      form.addEventListener('submit', async event => {
+        event.preventDefault()
+        const button = form.querySelector('.mengli-save')
+        if (button) button.disabled = true
+        const payload = {
+          memberId,
+          summary: form.querySelector('[name="summary"]')?.value || '',
+          personality: form.querySelector('[name="personality"]')?.value || '',
+          interactionStyle: form.querySelector('[name="interactionStyle"]')?.value || '',
+          tags: (form.querySelector('[name="tags"]')?.value || '').split(/[,，]/).map(item => item.trim()).filter(Boolean),
+          notes: (form.querySelector('[name="notes"]')?.value || '').split(/\r?\n/).map(item => item.trim()).filter(Boolean),
+        }
+        try {
+          await ctx.api.post('/plugins/mengli/memory/member', payload)
+          state.editing = false
+          ctx.toast?.('画像已保存，机器人会在下一次同步时应用。', 'success')
+          await loadAdmin()
+          render()
+        } catch (error) {
+          ctx.toast?.(error?.message || '保存画像失败', 'error')
+        } finally {
+          if (button) button.disabled = false
+        }
+      })
+    })
     body.querySelectorAll('[data-mengli-refresh]').forEach(button => button.addEventListener('click', () => void load()))
   }
 
   await load()
-  state.timer = setInterval(() => void load(), 15000)
+  state.timer = setInterval(() => {
+    if (!state.editing) void load()
+  }, 15000)
   return () => {
     if (state.timer) clearInterval(state.timer)
     state.timer = null

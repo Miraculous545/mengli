@@ -55,6 +55,7 @@ const MC_WATCH_ENABLED = /^(1|true|yes)$/i.test(process.env.QQBOT_MC_WATCH || ''
 const MC_NOTIFY_GROUPS = csv(process.env.QQBOT_MC_NOTIFY_GROUPS)
 const MC_WATCH_INTERVAL_MS = numberEnv('QQBOT_MC_WATCH_INTERVAL_MS', 20000)
 const PERSONA_FILE = process.env.QQBOT_PERSONA_FILE || join(ROOT, 'persona', 'mc-mengli.md')
+const PERSONA_OVERRIDE_FILE = join(RUNTIME_DIR, 'persona-override.md')
 const PERSONA_MAX = numberEnv('QQBOT_PERSONA_MAX', 6000)
 mkdirSync(join(ROOT, 'persona'), { recursive: true })
 
@@ -2317,8 +2318,9 @@ function runAgentSession({ prompt, sessionId, onSpawn }) {
 
 function loadPersona() {
   try {
-    if (!existsSync(PERSONA_FILE)) return ''
-    const raw = readFileSync(PERSONA_FILE, 'utf8')
+    const file = existsSync(PERSONA_OVERRIDE_FILE) ? PERSONA_OVERRIDE_FILE : PERSONA_FILE
+    if (!existsSync(file)) return ''
+    const raw = readFileSync(file, 'utf8')
     const text = raw.replace(/<!--[\s\S]*?-->/g, '').trim()
     return text.slice(0, PERSONA_MAX)
   } catch (error) {
