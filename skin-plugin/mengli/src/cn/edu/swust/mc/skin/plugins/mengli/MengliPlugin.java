@@ -83,6 +83,7 @@ public final class MengliPlugin implements SkinPlugin {
                     && !personaSeed.isBlank()) {
                 ctx.setData("persona", clampText(personaSeed, MAX_PERSONA));
                 ctx.setData("personaInitialized", true);
+                ctx.setData("personaEnabled", false);
                 ctx.setData("personaUpdatedAt", Instant.now().toString());
             }
             List<Map<String, Object>> existing = asMapList(ctx.getData("logs"));
@@ -126,6 +127,7 @@ public final class MengliPlugin implements SkinPlugin {
             result.put("updatedAt", updatedAt);
             result.put("settings", currentSettings());
             result.put("persona", currentPersona());
+            result.put("personaEnabled", Boolean.TRUE.equals(ctx.getData("personaEnabled")));
             result.put("personaUpdatedAt", ctx.getData("personaUpdatedAt"));
             result.put("memoryOverrides", asMapList(ctx.getData("memory_overrides")));
             return result;
@@ -545,6 +547,7 @@ public final class MengliPlugin implements SkinPlugin {
     private Object getPersona(PluginRequest request) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("persona", currentPersona());
+        result.put("enabled", Boolean.TRUE.equals(ctx.getData("personaEnabled")));
         result.put("updatedAt", ctx.getData("personaUpdatedAt"));
         result.put("initialized", Boolean.TRUE.equals(ctx.getData("personaInitialized")));
         return result;
@@ -552,9 +555,16 @@ public final class MengliPlugin implements SkinPlugin {
 
     private Object savePersona(PluginRequest request) throws Exception {
         Map<String, Object> body = request.json();
+        boolean reset = body != null && Boolean.TRUE.equals(body.get("reset"));
         String persona = clampText(body == null ? "" : String.valueOf(body.get("persona") == null ? "" : body.get("persona")), MAX_PERSONA);
+        boolean enabled = reset ? false : Boolean.TRUE.equals(ctx.getData("personaEnabled"));
+        if (!reset && body != null && body.containsKey("enabled")) {
+            Object raw = body.get("enabled");
+            enabled = Boolean.TRUE.equals(raw) || "1".equals(String.valueOf(raw)) || "true".equalsIgnoreCase(String.valueOf(raw));
+        }
         synchronized (lock) {
-            ctx.setData("persona", persona);
+            ctx.setData("persona", reset ? "" : persona);
+            ctx.setData("personaEnabled", enabled);
             ctx.setData("personaInitialized", true);
             ctx.setData("personaUpdatedAt", Instant.now().toString());
         }

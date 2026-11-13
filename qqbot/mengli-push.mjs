@@ -104,21 +104,22 @@ function readLocalPersonaSeed(root) {
   }
 }
 
-function applyRemotePersona(root, persona, log) {
+function applyRemotePersona(root, persona, enabled, log) {
   if (typeof persona !== 'string') return
   const file = join(root, 'runtime', 'persona-override.md')
   const text = persona.trim()
+  const active = enabled !== false && Boolean(text)
   try {
-    if (!text) {
+    if (!active) {
       if (existsSync(file)) {
         unlinkSync(file)
-        log('梦璃站点人设已清空，恢复本地人设')
+        log('梦璃站点人设未启用/已停用，恢复本地人设')
       }
       return
     }
     if (existsSync(file) && readFileSync(file, 'utf8') === text) return
     writeFileSync(file, text)
-    log('梦璃站点人设已同步到机器人')
+    log('梦璃站点人设已启用并同步到机器人')
   } catch (error) {
     log(`梦璃站点人设同步失败：${String(error.message || error).slice(0, 160)}`)
   }
@@ -279,7 +280,7 @@ export function startMengliPush({ root, memoryStore, log }) {
       }
       const data = result?.data ?? result
       applyRemoteSettings(settingsFile, data?.settings, log)
-      applyRemotePersona(root, data?.persona, log)
+      applyRemotePersona(root, data?.persona, data?.personaEnabled, log)
       applyRemoteMemoryOverrides(root, memoryStore, data?.memoryOverrides, log)
       state = {
         offset: batch.nextOffset,

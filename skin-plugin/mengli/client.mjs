@@ -59,6 +59,8 @@ const STYLE = `
   .mengli-persona { padding: 14px; display: grid; gap: 8px; border-bottom: 1px solid rgba(127,127,127,.14); }
   .mengli-persona h3 { margin: 0; font-size: 16px; }
   .mengli-persona textarea { width: 100%; min-height: 220px; resize: vertical; border: 1px solid var(--line, #d0d5dd); border-radius: 8px; padding: 9px 10px; background: transparent; color: inherit; font: inherit; font-size: 13px; line-height: 1.6; }
+  .mengli-persona-toggle { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.5; }
+  .mengli-persona-toggle input { width: 18px; height: 18px; margin-top: 1px; accent-color: #2563eb; flex: 0 0 auto; }
   .mengli-memory-edit { border-top: 1px solid rgba(127,127,127,.14); padding-top: 8px; }
   .mengli-memory-edit summary { cursor: pointer; color: #2563eb; font-size: 12px; }
   .mengli-memory-edit form { display: grid; gap: 7px; margin-top: 8px; }
@@ -304,9 +306,10 @@ function renderSettings(state) {
     <div class="mengli-panel">
       <form class="mengli-persona" data-mengli-persona-form>
         <h3>人设 / 提示词</h3>
-        <p class="mengli-muted">这里保存的是机器人下一轮对话使用的人设。留空保存表示恢复机器人本地人设；保存后约 15 秒内同步。</p>
-        <textarea name="persona" maxlength="6000" placeholder="还没有从机器人同步人设；保存后会覆盖本地人设。">${esc(state.persona || '')}</textarea>
-        <p class="mengli-muted">${state.personaUpdatedAt ? `上次保存：${esc(fmtTime(state.personaUpdatedAt))}` : '尚未在站点保存过人设'}</p>
+        <p class="mengli-muted">这里保存的是站点人设草稿。未勾选启用时只保存草稿，不会影响机器人；机器人本地 persona/mc-mengli.md 永远不会被修改。</p>
+        <textarea name="persona" maxlength="6000" placeholder="机器人还没有同步本地人设，可以直接粘贴一份草稿。">${esc(state.persona || '')}</textarea>
+        <label class="mengli-persona-toggle"><input type="checkbox" name="personaEnabled" ${state.personaEnabled ? 'checked' : ''} /> 启用站点人设（勾选后才会覆盖机器人当前人设；取消勾选并保存会恢复本地人设）</label>
+        <p class="mengli-muted">${state.personaEnabled ? '当前：使用站点人设覆盖层' : '当前：使用机器人本地人设'}${state.personaUpdatedAt ? ` · 上次保存 ${esc(fmtTime(state.personaUpdatedAt))}` : ''}</p>
         <p class="mengli-error" data-mengli-persona-error hidden></p>
         <button class="mengli-save" type="submit">保存人设</button>
       </form>
@@ -451,6 +454,7 @@ export async function mount(root, ctx) {
     settings: {},
     settingsUpdatedAt: null,
     persona: '',
+    personaEnabled: false,
     personaUpdatedAt: null,
     editing: false,
     bindStatus: null,
@@ -544,6 +548,7 @@ export async function mount(root, ctx) {
       state.settings = settingsData?.settings || {}
       state.settingsUpdatedAt = settingsData?.updatedAt || null
       state.persona = personaData?.persona || ''
+      state.personaEnabled = Boolean(personaData?.enabled)
       state.personaUpdatedAt = personaData?.updatedAt || null
       state.updatedAt = logs?.updatedAt || memory?.updatedAt || null
       state.error = ''
@@ -638,11 +643,15 @@ export async function mount(root, ctx) {
         try {
           const result = await ctx.api.post('/plugins/mengli/persona', {
             persona: personaForm.querySelector('[name="persona"]')?.value || '',
+            enabled: Boolean(personaForm.querySelector('[name="personaEnabled"]')?.checked),
           })
           state.persona = result?.persona || ''
+          state.personaEnabled = Boolean(result?.enabled)
           state.personaUpdatedAt = result?.updatedAt || new Date().toISOString()
           state.editing = false
-          ctx.toast?.('人设已保存，桥接会在下一次推送时同步。', 'success')
+          ctx.toast?.(state.personaEnabled
+            ? '站点人设已启用，桥接会在下一次推送时同步。'
+            : '草稿已保存；未启用，机器人继续使用本地人设。', 'success')
           render()
         } catch (error) {
           if (errorEl) {
