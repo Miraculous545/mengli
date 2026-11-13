@@ -27,16 +27,15 @@ import { getMcPlayerSample } from './mc-ping.mjs'
 const ROOT = dirname(fileURLToPath(import.meta.url))
 const RUNTIME_DIR = join(ROOT, 'runtime')
 const WORKSPACE = process.env.QQBOT_AGENT_CWD || join(ROOT, 'workspace')
-const ZCODE_CLI = process.env.ZCODE_CLI || 'C:/Program Files/ZCode/resources/glm/zcode.cjs'
+const ZCODE_CLI = process.env.ZCODE_CLI
+  || (process.platform === 'win32' ? 'C:/Program Files/ZCode/resources/glm/zcode.cjs' : 'zcode')
 const ZCODE_HOME = process.env.USERPROFILE || process.env.HOME || ''
-const ZCODE_PROVIDER_ROOT = join(
-  ZCODE_HOME,
-  '.zcode',
-  'v2',
-  'runtime',
-  'provider',
-  `windows-${process.arch === 'x64' ? 'x86_64' : process.arch}`,
-)
+const ZCODE_PROVIDER_PARENT = join(ZCODE_HOME, '.zcode', 'v2', 'runtime', 'provider')
+const ZCODE_PLATFORM = process.platform === 'win32'
+  ? 'windows'
+  : process.platform === 'darwin' ? 'darwin' : 'linux'
+const ZCODE_ARCH = process.arch === 'x64' ? 'x86_64' : process.arch
+const ZCODE_PROVIDER_ROOT = join(ZCODE_PROVIDER_PARENT, `${ZCODE_PLATFORM}-${ZCODE_ARCH}`)
 const ZCODE_PERSONAL_PROVIDER_CONFIG = join(ZCODE_HOME, '.zcode', 'v2', 'provider_config.json')
 let providerConfigLogged = false
 const AGENT_MODE = (process.env.QQBOT_AGENT_MODE || 'guarded').trim()
@@ -60,7 +59,13 @@ const PERSONA_MAX = numberEnv('QQBOT_PERSONA_MAX', 6000)
 mkdirSync(join(ROOT, 'persona'), { recursive: true })
 
 const MEDIA_SCRIPT = process.env.QQBOT_MEDIA_SCRIPT || join(ROOT, 'media-parser', 'parse_media.py')
-const MEDIA_PYTHON = process.env.QQBOT_MEDIA_PYTHON || join(ROOT, 'media-parser', '.venv', 'Scripts', 'python.exe')
+const MEDIA_PYTHON = process.env.QQBOT_MEDIA_PYTHON || join(
+  ROOT,
+  'media-parser',
+  '.venv',
+  process.platform === 'win32' ? 'Scripts' : 'bin',
+  process.platform === 'win32' ? 'python.exe' : 'python',
+)
 const MEDIA_CACHE_DIR = process.env.QQBOT_MEDIA_CACHE || join(RUNTIME_DIR, 'media-cache')
 const PROFILE_CARD_SCRIPT = join(ROOT, 'profile-card', 'render_profile_card.py')
 const PROFILE_CARD_DIR = join(RUNTIME_DIR, 'profile-cards')
@@ -635,14 +640,22 @@ function writeStatus(extra = {}) {
 }
 
 function processCommandLine(pid) {
-  if (process.platform !== 'win32') return ''
   try {
-    return execFileSync('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      `(Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}").CommandLine`,
-    ], { encoding: 'utf8', timeout: 3000, windowsHide: true }).trim()
+    if (process.platform === 'win32') {
+      return execFileSync('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `(Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}").CommandLine`,
+      ], { encoding: 'utf8', timeout: 3000, windowsHide: true }).trim()
+    }
+    if (process.platform === 'linux') {
+      return readFileSync(`/proc/${Number(pid)}/cmdline`, 'utf8').replace(/\0/g, ' ').trim()
+    }
+    return execFileSync('ps', ['-p', String(Number(pid)), '-o', 'command='], {
+      encoding: 'utf8',
+      timeout: 3000,
+    }).trim()
   } catch {
     return ''
   }
@@ -932,6 +945,7 @@ function runProfileCardRenderer(payload, output) {
     const child = spawn(profileCardPython(), [PROFILE_CARD_SCRIPT, output], {
       cwd: ROOT,
       windowsHide: true,
+      detached: process.platform !== 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     let stdout = ''
@@ -1396,6 +1410,7 @@ function runMediaParser(text, options = {}) {
       cwd: join(ROOT, 'media-parser'),
       env,
       windowsHide: true,
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     if (options.onSpawn) options.onSpawn(child)
@@ -2084,9 +2099,24 @@ function releaseSlot() {
 function killTree(pid) {
   return new Promise(resolve => {
     if (!pid) return resolve()
-    const killer = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
-    killer.on('exit', resolve)
-    killer.on('error', resolve)
+    if (process.platform === 'win32') {
+      const killer = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+      killer.on('exit', resolve)
+      killer.on('error', resolve)
+      return
+    }
+    // Linux/macOS 下 agent 以独立进程组启动，先整组 SIGTERM，再兜底 SIGKILL。
+    try {
+      process.kill(-pid, 'SIGTERM')
+    } catch {
+      try { process.kill(pid, 'SIGTERM') } catch { /* ignore */ }
+    }
+    setTimeout(() => {
+      try { process.kill(-pid, 'SIGKILL') } catch {
+        try { process.kill(pid, 'SIGKILL') } catch { /* ignore */ }
+      }
+    }, 1200).unref()
+    resolve()
   })
 }
 
@@ -2111,16 +2141,25 @@ function parseAgentOutput(stdout) {
 
 function findZcodeBuiltinProviderConfig() {
   try {
-    if (!ZCODE_HOME || !existsSync(ZCODE_PROVIDER_ROOT)) return ''
+    if (!ZCODE_HOME) return ''
+    const roots = [ZCODE_PROVIDER_ROOT]
+    if (existsSync(ZCODE_PROVIDER_PARENT)) {
+      for (const entry of readdirSync(ZCODE_PROVIDER_PARENT, { withFileTypes: true })) {
+        if (entry.isDirectory()) roots.push(join(ZCODE_PROVIDER_PARENT, entry.name))
+      }
+    }
     const candidates = []
-    for (const version of readdirSync(ZCODE_PROVIDER_ROOT, { withFileTypes: true })) {
-      if (!version.isDirectory()) continue
-      const versionDir = join(ZCODE_PROVIDER_ROOT, version.name)
-      for (const endpoint of readdirSync(versionDir, { withFileTypes: true })) {
-        if (!endpoint.isDirectory()) continue
-        const file = join(versionDir, endpoint.name, 'zcode-builtin.json')
-        if (!existsSync(file)) continue
-        candidates.push({ file, mtime: statSync(file).mtimeMs })
+    for (const root of [...new Set(roots)]) {
+      if (!existsSync(root)) continue
+      for (const version of readdirSync(root, { withFileTypes: true })) {
+        if (!version.isDirectory()) continue
+        const versionDir = join(root, version.name)
+        for (const endpoint of readdirSync(versionDir, { withFileTypes: true })) {
+          if (!endpoint.isDirectory()) continue
+          const file = join(versionDir, endpoint.name, 'zcode-builtin.json')
+          if (!existsSync(file)) continue
+          candidates.push({ file, mtime: statSync(file).mtimeMs })
+        }
       }
     }
     candidates.sort((a, b) => b.mtime - a.mtime)
@@ -2203,8 +2242,11 @@ function applyAgentModelEnv(env) {
 
 function runAgentSession({ prompt, sessionId, onSpawn }) {
   return new Promise((resolve, reject) => {
-    const args = [ZCODE_CLI, '-p', prompt, '--json', '--no-color', '--cwd', WORKSPACE, '--mode', AGENT_MODE, '--locale', 'zh-CN']
-    if (sessionId) args.push('--resume', sessionId)
+    const cliArgs = ['-p', prompt, '--json', '--no-color', '--cwd', WORKSPACE, '--mode', AGENT_MODE, '--locale', 'zh-CN']
+    if (sessionId) cliArgs.push('--resume', sessionId)
+    const cliIsScript = /\.(?:c|m)?js$/i.test(ZCODE_CLI)
+    const command = cliIsScript ? process.execPath : ZCODE_CLI
+    const args = cliIsScript ? [ZCODE_CLI, ...cliArgs] : cliArgs
 
     // 不把机器人凭据交给子 agent，避免被提示词套出
     const agentEnv = { ...process.env }
@@ -2217,10 +2259,11 @@ function runAgentSession({ prompt, sessionId, onSpawn }) {
     applyZcodeProviderEnv(agentEnv)
     applyAgentModelEnv(agentEnv)
 
-    const child = spawn(process.execPath, args, {
+    const child = spawn(command, args, {
       cwd: WORKSPACE,
       env: agentEnv,
       windowsHide: true,
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     if (onSpawn) onSpawn(child)

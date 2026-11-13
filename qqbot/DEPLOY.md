@@ -214,21 +214,19 @@ curl.exe http://127.0.0.1:8765/api/health
 
 SQLite 运行中不要直接复制 `memory.db`，用 `VACUUM INTO` 或先停桥接。备份文件不要提交到 Git。
 
-## 9. Linux 注意事项
+## 9. Linux 部署
 
-当前代码不能直接原样搬 Linux：
+Linux 版已提供独立部署包和 systemd 单元，见 [deploy/linux/README-LINUX.md](deploy/linux/README-LINUX.md)。桥接已处理：
 
-- `watchdog.ps1` 是 PowerShell 脚本。
-- `killTree()` 调用 `taskkill`，Linux 上无法停止 agent。
-- ZCode provider 发现路径写死了 `windows-x86_64`。
-- `start-*.cmd` 是 Windows 批处理。
+- provider 目录按平台选择（`linux-x86_64` / `windows-x86_64`）；
+- Linux 使用进程组终止 agent/media 子进程；
+- Python venv 使用 `bin/python`；
+- systemd 托管 bridge 和 monitor，开机自动运行，不依赖登录。
 
-如果一定要用 Linux，需要先做跨平台改造，至少包括：
+前提是 **ZCode Linux CLI 能在服务器上正常运行**。目前无法在 Windows 开发机验证 Linux 版 ZCode，所以切换前必须先在目标 Linux 上跑一次无头 CLI 测试：
 
-1. provider 根目录按 `process.platform` 选择 `linux-x86_64` / `windows-x86_64`。
-2. `killTree` 在 Linux 使用进程组 `kill` 或 `pkill -P`。
-3. 用 systemd 替代 `watchdog.ps1`，分别托管 bridge 和 monitor。
-4. 确认 ZCode 官方 Linux CLI 可用，并重新登录/配置 provider。
-5. 安装 Noto CJK 字体，设置 `QQBOT_PROFILE_FONT` / `QQBOT_PROFILE_FONT_BOLD`。
+```bash
+zcode -p "只回复OK" --json --no-color --cwd /opt/qqbot/workspace --mode guarded --locale zh-CN
+```
 
-在完成这些改造前，优先选 Windows Server；它和当前代码、看门狗、`taskkill`、ZCode 路径完全一致，迁移风险最低。
+如果 ZCode Linux CLI 不可用，仍然建议用 Windows Server；桥接代码本身已经是跨平台的。
