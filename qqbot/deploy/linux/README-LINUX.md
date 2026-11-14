@@ -19,13 +19,72 @@ ZCode Provider 必须配置在运行机器人的用户下：
 /home/<user>/.zcode/v2/provider_config.json
 ```
 
-最快方式是从当前 Windows 机器复制这个文件到服务器对应用户目录。手工配置时使用 OpenAI Chat Completions，Base URL：
+**最快方式：从当前 Windows 机器复制**
 
-```text
-https://opencode.ai/zen/go/v1
+服务器上先建目录：
+
+```bash
+sudo -u <user> mkdir -p /home/<user>/.zcode/v2
 ```
 
-主模型 `qwen3.8-flash`，备用 `deepseek-v4.1-flash`。API key 不要提交到 Git。
+在 Windows Git Bash 上传：
+
+```bash
+scp "C:/Users/Administrator/.zcode/v2/provider_config.json" \
+  <user>@<server>:/home/<user>/.zcode/v2/provider_config.json
+```
+
+回服务器修正权限：
+
+```bash
+chown -R <user>:<user> /home/<user>/.zcode
+chmod 600 /home/<user>/.zcode/v2/provider_config.json
+```
+
+`provider_config.json` 里有模型 API key，不要提交 Git，也不要发到聊天里。
+
+**手工创建时填这些值**
+
+```json
+{
+  "schemaVersion": 1,
+  "config": {
+    "providerOrder": ["new-provider"],
+    "providerConfigRules": {
+      "providerRules": [{
+        "providerId": "new-provider",
+        "providerName": "新供应商",
+        "config": {
+          "group": "standard-personal",
+          "access": { "type": "api-key", "apiKey": "<你的模型 API key>" },
+          "api": {
+            "type": "openai-chat-completions",
+            "baseUrl": "https://opencode.ai/zen/go/v1"
+          },
+          "personalModelIds": ["qwen3.8-flash", "deepseek-v4.1-flash"],
+          "modelOrder": ["qwen3.8-flash", "deepseek-v4.1-flash"]
+        }
+      }]
+    },
+    "modelConfigRules": {
+      "providerModelRules": [
+        { "modelId": "qwen3.8-flash", "config": { "enabled": true }, "providerId": "new-provider" },
+        { "modelId": "deepseek-v4.1-flash", "config": { "enabled": true }, "providerId": "new-provider" }
+      ],
+      "manualProviderModelRules": []
+    }
+  }
+}
+```
+
+配置完成后用运行用户测试：
+
+```bash
+sudo -u <user> -H zcode -p "只回复OK" --json --no-color \
+  --cwd /opt/qqbot/workspace --mode guarded --locale zh-CN
+```
+
+返回 `"response": "OK"` 就说明 Provider 正常。如果 `zcode` 不在 PATH，设置 `ZCODE_CLI=/绝对路径/zcode` 后再运行部署脚本。
 
 ## 2. 解压和部署
 
