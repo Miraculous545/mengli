@@ -296,7 +296,10 @@ export function startMengliPush({ root, memoryStore, log }) {
       const now = Date.now()
       if (now - lastErrorLogAt > 5 * 60 * 1000) {
         lastErrorLogAt = now
-        log(`梦璃推送失败：${String(error.message || error).slice(0, 240)}`)
+        const detail = String(error.message || error).slice(0, 240)
+        log(/token/i.test(detail)
+          ? '梦璃推送失败：皮肤站与机器人的 MENGLI_INGEST_TOKEN 不一致或站点未配置，请同步两边的 token'
+          : `梦璃推送失败：${detail}`)
       }
     } finally {
       running = false

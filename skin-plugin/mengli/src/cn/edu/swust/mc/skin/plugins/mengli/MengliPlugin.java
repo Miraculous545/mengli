@@ -51,6 +51,11 @@ public final class MengliPlugin implements SkinPlugin {
     @Override
     public void activate(PluginContext context) {
         this.ctx = context;
+        if (INGEST_TOKEN.isEmpty()) {
+            context.warn("MENGLI_INGEST_TOKEN 未配置：梦璃推送、绑定查询、在线时长和玩家名单接口会返回 403；请让站点与 QQ 机器人使用同一个 token");
+        } else {
+            context.info("梦璃推送 token 已配置");
+        }
         ctx.registerRoute("POST", "/ingest", this::ingest);
         ctx.registerRoute("GET", "/bind/status", this::bindStatus);
         ctx.registerRoute("POST", "/bind/code", this::createBindCode);

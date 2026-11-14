@@ -22,7 +22,11 @@ async function post(path, body, { timeoutMs = TIMEOUT_MS } = {}) {
     data = {}
   }
   if (!response.ok || data?.ok === false) {
-    throw new Error(data?.error?.message || `皮肤站 HTTP ${response.status}`)
+    const message = String(data?.error?.message || `皮肤站 HTTP ${response.status}`)
+    if (/token/i.test(message)) {
+      throw new Error('皮肤站梦璃插件 token 不一致或未配置，请让站点和机器人使用同一个 MENGLI_INGEST_TOKEN')
+    }
+    throw new Error(message)
   }
   return data?.data ?? data
 }
