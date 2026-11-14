@@ -170,5 +170,5 @@ node -e "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('
 - 如果 ZCode 没有 Linux 版或 Linux CLI 无法运行，仍需使用 Windows Server。
 - 服务器需要能访问 `api.sgroup.qq.com`、`www.swustmc.com`、模型网关和媒体站点。
 - 代理主 IP 没有玩家 sample 时，桥接会尝试皮肤站配置的“次 IP/备用线路”。
-- 皮肤站插件需同步到 1.5.6 才能在站点编辑人设/提示词和群友记忆；站点 JAR 需要单独部署，不包含在这个 QQ 机器人包里。
+- 皮肤站插件需同步到 1.5.7 才能在站点编辑人设/提示词和群友记忆；站点 JAR 需要单独部署，不包含在这个 QQ 机器人包里。
 - 新服务器验证正常后，停掉旧机器的看门狗/桥接，避免两个实例同时连接 QQ。

@@ -61,6 +61,9 @@ const STYLE = `
   .mengli-persona textarea { width: 100%; min-height: 220px; resize: vertical; border: 1px solid var(--line, #d0d5dd); border-radius: 8px; padding: 9px 10px; background: transparent; color: inherit; font: inherit; font-size: 13px; line-height: 1.6; }
   .mengli-persona-toggle { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.5; }
   .mengli-persona-toggle input { width: 18px; height: 18px; margin-top: 1px; accent-color: #2563eb; flex: 0 0 auto; }
+  .mengli-persona input[type=password] { width: 100%; border: 1px solid var(--line, #d0d5dd); border-radius: 8px; padding: 9px 10px; background: transparent; color: inherit; font: inherit; font-size: 13px; box-sizing: border-box; }
+  .mengli-token-result { display: grid; gap: 6px; padding: 10px; border: 1px dashed #2563eb; border-radius: 8px; }
+  .mengli-token-result input { width: 100%; border: 1px solid var(--line, #d0d5dd); border-radius: 8px; padding: 8px 9px; background: transparent; color: inherit; font: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; box-sizing: border-box; }
   .mengli-memory-edit { border-top: 1px solid rgba(127,127,127,.14); padding-top: 8px; }
   .mengli-memory-edit summary { cursor: pointer; color: #2563eb; font-size: 12px; }
   .mengli-memory-edit form { display: grid; gap: 7px; margin-top: 8px; }
@@ -302,6 +305,14 @@ function renderMemory(state) {
 function renderSettings(state) {
   const s = state.settings || {}
   const probability = Math.round((Number(s.autoReplyProbability) || 0) * 100)
+  const token = state.tokenStatus || {}
+  const tokenSource = token.source || 'none'
+  const envManaged = tokenSource === 'environment'
+  const tokenStatusText = envManaged
+    ? '当前由皮肤站环境变量 MENGLI_INGEST_TOKEN 配置；后台保存不会覆盖它。'
+    : tokenSource === 'panel'
+      ? '当前使用后台保存的 token。请确保与 QQ 机器人的 MENGLI_INGEST_TOKEN 完全一致。'
+      : '当前未配置 token，日志/绑定/记忆/在线时长/玩家名单接口都会返回 403。'
   return `
     <div class="mengli-panel">
       <form class="mengli-persona" data-mengli-persona-form>
@@ -313,6 +324,24 @@ function renderSettings(state) {
         <p class="mengli-error" data-mengli-persona-error hidden></p>
         <button class="mengli-save" type="submit">保存人设</button>
       </form>
+      ${envManaged ? `<div class="mengli-persona">
+        <h3>推送 Token</h3>
+        <p class="mengli-muted">${esc(tokenStatusText)}</p>
+      </div>` : `<form class="mengli-persona" data-mengli-token-form>
+        <h3>推送 Token</h3>
+        <p class="mengli-muted">${esc(tokenStatusText)}</p>
+        <input type="password" name="token" autocomplete="new-password" placeholder="输入与机器人相同的 MENGLI_INGEST_TOKEN" />
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="mengli-save" type="submit">保存 Token</button>
+          <button class="mengli-tab" type="button" data-mengli-token-generate>生成新 Token</button>
+          ${tokenSource === 'panel' ? '<button class="mengli-tab" type="button" data-mengli-token-clear>清除后台 Token</button>' : ''}
+        </div>
+        ${state.generatedToken ? `<div class="mengli-token-result">
+          <p class="mengli-muted">新 token 只显示一次，复制到机器人环境变量后重启机器人：</p>
+          <input type="text" readonly value="${esc(state.generatedToken)}" />
+          <button class="mengli-tab" type="button" data-mengli-token-copy>复制</button>
+        </div>` : ''}
+      </form>`}
       <form class="mengli-settings" data-mengli-settings-form>
         <div class="mengli-setting-row">
           <label>媒体链接解析<small>识别到 B站 / 抖音 / 小红书等支持平台的链接时，自动解析并发送媒体。</small></label>
@@ -456,6 +485,8 @@ export async function mount(root, ctx) {
     persona: '',
     personaEnabled: false,
     personaUpdatedAt: null,
+    tokenStatus: {},
+    generatedToken: '',
     editing: false,
     bindStatus: null,
     bindCode: null,
@@ -536,11 +567,12 @@ export async function mount(root, ctx) {
 
   async function loadAdmin() {
     try {
-      const [logs, memory, settingsData, personaData] = await Promise.all([
+      const [logs, memory, settingsData, personaData, tokenData] = await Promise.all([
         ctx.api.get('/plugins/mengli/logs?limit=300'),
         ctx.api.get('/plugins/mengli/memory'),
         ctx.api.get('/plugins/mengli/settings'),
         ctx.api.get('/plugins/mengli/persona').catch(() => ({})),
+        ctx.api.get('/plugins/mengli/token').catch(() => ({})),
       ])
       state.logs = Array.isArray(logs?.items) ? logs.items : []
       state.logTotal = Number(logs?.total || state.logs.length)
@@ -550,6 +582,7 @@ export async function mount(root, ctx) {
       state.persona = personaData?.persona || ''
       state.personaEnabled = Boolean(personaData?.enabled)
       state.personaUpdatedAt = personaData?.updatedAt || null
+      state.tokenStatus = tokenData || {}
       state.updatedAt = logs?.updatedAt || memory?.updatedAt || null
       state.error = ''
     } catch (error) {
@@ -661,6 +694,66 @@ export async function mount(root, ctx) {
           ctx.toast?.(error?.message || '保存人设失败', 'error')
         } finally {
           if (button) button.disabled = false
+        }
+      })
+    }
+    const tokenForm = body.querySelector('[data-mengli-token-form]')
+    if (tokenForm) {
+      tokenForm.addEventListener('submit', async event => {
+        event.preventDefault()
+        const input = tokenForm.querySelector('[name="token"]')
+        const token = (input?.value || '').trim()
+        if (!token) {
+          ctx.toast?.('请输入与机器人相同的 token', 'error')
+          return
+        }
+        const button = tokenForm.querySelector('.mengli-save')
+        if (button) button.disabled = true
+        try {
+          const result = await ctx.api.post('/plugins/mengli/token', { token })
+          state.tokenStatus = result || {}
+          state.generatedToken = ''
+          state.editing = false
+          if (input) input.value = ''
+          ctx.toast?.('Token 已保存；机器人下一次推送会使用它。', 'success')
+          render()
+        } catch (error) {
+          ctx.toast?.(error?.message || '保存 Token 失败', 'error')
+        } finally {
+          if (button) button.disabled = false
+        }
+      })
+      tokenForm.querySelector('[data-mengli-token-generate]')?.addEventListener('click', async () => {
+        try {
+          const result = await ctx.api.post('/plugins/mengli/token/generate', {})
+          state.tokenStatus = { configured: true, source: 'panel', updatedAt: result?.updatedAt }
+          state.generatedToken = result?.token || ''
+          state.editing = false
+          ctx.toast?.('已生成新 Token；复制到机器人环境变量并重启机器人。', 'success')
+          render()
+        } catch (error) {
+          ctx.toast?.(error?.message || '生成 Token 失败', 'error')
+        }
+      })
+      tokenForm.querySelector('[data-mengli-token-clear]')?.addEventListener('click', async () => {
+        try {
+          const result = await ctx.api.post('/plugins/mengli/token', { clear: true })
+          state.tokenStatus = result || {}
+          state.generatedToken = ''
+          state.editing = false
+          ctx.toast?.('后台 Token 已清除。', 'success')
+          render()
+        } catch (error) {
+          ctx.toast?.(error?.message || '清除 Token 失败', 'error')
+        }
+      })
+      tokenForm.querySelector('[data-mengli-token-copy]')?.addEventListener('click', async () => {
+        if (!state.generatedToken) return
+        try {
+          await navigator.clipboard.writeText(state.generatedToken)
+          ctx.toast?.('Token 已复制', 'success')
+        } catch {
+          ctx.toast?.('复制失败，请手动选中复制', 'error')
         }
       })
     }

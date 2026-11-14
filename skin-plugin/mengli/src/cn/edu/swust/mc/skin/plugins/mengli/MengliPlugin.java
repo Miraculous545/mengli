@@ -15,6 +15,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,7 +27,7 @@ import java.util.Map;
  */
 public final class MengliPlugin implements SkinPlugin {
     // 推送 token 从部署环境注入，不把真实值提交到源码仓库。
-    private static final String INGEST_TOKEN = resolveIngestToken();
+    private static final String ENV_INGEST_TOKEN = resolveIngestToken();
     private static final int MAX_LOGS = 1200;
     private static final int MAX_BATCH = 300;
     private static final long BIND_CODE_TTL_MS = 10 * 60 * 1000;
@@ -37,6 +38,7 @@ public final class MengliPlugin implements SkinPlugin {
     private static final int MAX_TAG_LENGTH = 50;
     private static final int MAX_NOTES = 20;
     private static final int MAX_NOTE_LENGTH = 500;
+    private static final int MAX_TOKEN_LENGTH = 200;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private PluginContext ctx;
@@ -48,11 +50,17 @@ public final class MengliPlugin implements SkinPlugin {
         return value.trim();
     }
 
+    private String currentIngestToken() {
+        if (!ENV_INGEST_TOKEN.isEmpty()) return ENV_INGEST_TOKEN;
+        Object stored = ctx == null ? null : ctx.getData("ingest_token");
+        return stored == null ? "" : String.valueOf(stored).trim();
+    }
+
     @Override
     public void activate(PluginContext context) {
         this.ctx = context;
-        if (INGEST_TOKEN.isEmpty()) {
-            context.warn("MENGLI_INGEST_TOKEN 未配置：梦璃推送、绑定查询、在线时长和玩家名单接口会返回 403；请让站点与 QQ 机器人使用同一个 token");
+        if (currentIngestToken().isEmpty()) {
+            context.warn("梦璃推送 token 未配置：请在后台设置页配置 token，或设置环境变量 MENGLI_INGEST_TOKEN；需与 QQ 机器人一致");
         } else {
             context.info("梦璃推送 token 已配置");
         }
@@ -72,11 +80,15 @@ public final class MengliPlugin implements SkinPlugin {
         ctx.registerAdminRoute("GET", "/persona", this::getPersona);
         ctx.registerAdminRoute("POST", "/persona", this::savePersona);
         ctx.registerAdminRoute("POST", "/memory/member", this::saveMemoryMember);
+        ctx.registerAdminRoute("GET", "/token", this::getToken);
+        ctx.registerAdminRoute("POST", "/token", this::saveToken);
+        ctx.registerAdminRoute("POST", "/token/generate", this::generateToken);
     }
 
     private Object ingest(PluginRequest request) throws Exception {
         Map<String, Object> body = request.json();
-        if (body == null || INGEST_TOKEN.isEmpty() || !INGEST_TOKEN.equals(String.valueOf(body.get("token") == null ? "" : body.get("token")))) {
+        String configuredToken = currentIngestToken();
+        if (body == null || configuredToken.isEmpty() || !configuredToken.equals(String.valueOf(body.get("token") == null ? "" : body.get("token")))) {
             throw Web.forbidden("梦璃推送 token 无效");
         }
         synchronized (lock) {
@@ -250,7 +262,8 @@ public final class MengliPlugin implements SkinPlugin {
 
     private Map<String, Object> bodyWithToken(PluginRequest request) throws Exception {
         Map<String, Object> body = request.json();
-        if (body == null || INGEST_TOKEN.isEmpty() || !INGEST_TOKEN.equals(String.valueOf(body.get("token") == null ? "" : body.get("token")))) {
+        String configuredToken = currentIngestToken();
+        if (body == null || configuredToken.isEmpty() || !configuredToken.equals(String.valueOf(body.get("token") == null ? "" : body.get("token")))) {
             throw Web.forbidden("梦璃推送 token 无效");
         }
         return body;
@@ -547,6 +560,48 @@ public final class MengliPlugin implements SkinPlugin {
     private String currentPersona() {
         Object value = ctx.getData("persona");
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private Object getToken(PluginRequest request) {
+        Object stored = ctx.getData("ingest_token");
+        String panelToken = stored == null ? "" : String.valueOf(stored).trim();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("configured", !currentIngestToken().isEmpty());
+        result.put("source", !ENV_INGEST_TOKEN.isEmpty() ? "environment" : !panelToken.isEmpty() ? "panel" : "none");
+        result.put("updatedAt", ctx.getData("tokenUpdatedAt"));
+        return result;
+    }
+
+    private Object saveToken(PluginRequest request) throws Exception {
+        Map<String, Object> body = request.json();
+        boolean clear = body != null && Boolean.TRUE.equals(body.get("clear"));
+        synchronized (lock) {
+            if (clear) {
+                ctx.deleteData("ingest_token");
+            } else {
+                String token = clampText(body == null ? "" : body.get("token"), MAX_TOKEN_LENGTH);
+                if (token.length() < 8) throw Web.badRequest("token 至少需要 8 个字符");
+                ctx.setData("ingest_token", token);
+            }
+            ctx.setData("tokenUpdatedAt", Instant.now().toString());
+        }
+        return getToken(request);
+    }
+
+    private Object generateToken(PluginRequest request) {
+        byte[] bytes = new byte[32];
+        RANDOM.nextBytes(bytes);
+        String token = HexFormat.of().formatHex(bytes);
+        synchronized (lock) {
+            ctx.setData("ingest_token", token);
+            ctx.setData("tokenUpdatedAt", Instant.now().toString());
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("token", token);
+        result.put("configured", true);
+        result.put("source", "panel");
+        result.put("updatedAt", ctx.getData("tokenUpdatedAt"));
+        return result;
     }
 
     private Object getPersona(PluginRequest request) {

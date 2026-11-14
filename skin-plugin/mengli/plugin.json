@@ -1,7 +1,7 @@
 {
   "id": "mengli",
   "name": "梦璃",
-  "version": "1.5.6",
+  "version": "1.5.7",
   "description": "梦璃 QQ 群日志与群友记忆面板",
   "author": "星空社技术组",
   "mainClass": "cn.edu.swust.mc.skin.plugins.mengli.MengliPlugin",
