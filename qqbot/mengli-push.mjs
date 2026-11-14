@@ -70,6 +70,10 @@ function applyRemoteSettings(file, settings, log) {
     memoryIsolatedGroups: Array.isArray(settings.memoryIsolatedGroups)
       ? settings.memoryIsolatedGroups
       : (Array.isArray(current?.memoryIsolatedGroups) ? current.memoryIsolatedGroups : []),
+    // 定时清空只在本地监控页配置，站点设置里没有这个字段时保留当前值。
+    sessionResetMinutes: Number.isFinite(Number(settings.sessionResetMinutes))
+      ? Number(settings.sessionResetMinutes)
+      : (Number.isFinite(Number(current?.sessionResetMinutes)) ? Number(current.sessionResetMinutes) : 60),
   }
   if (current && JSON.stringify(current) === JSON.stringify(next)) return false
   try {

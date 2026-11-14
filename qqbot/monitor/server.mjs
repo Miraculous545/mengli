@@ -109,6 +109,7 @@ const DEFAULT_SETTINGS = {
   memoryAutoProfile: false,
   memoryAutoProfileEvery: 20,
   memoryIsolatedGroups: [],
+  sessionResetMinutes: 60,
   mcPlayerLimit: 5,
 }
 
@@ -147,6 +148,7 @@ function normalizeSettings(input) {
     memoryAutoProfile: typeof data.memoryAutoProfile === 'boolean' ? data.memoryAutoProfile : DEFAULT_SETTINGS.memoryAutoProfile,
     memoryAutoProfileEvery: clampNumber(data.memoryAutoProfileEvery, 5, 500, DEFAULT_SETTINGS.memoryAutoProfileEvery),
     memoryIsolatedGroups: normalizeIsolatedGroups(data.memoryIsolatedGroups),
+    sessionResetMinutes: clampNumber(data.sessionResetMinutes, 0, 1440, DEFAULT_SETTINGS.sessionResetMinutes),
     mcPlayerLimit: clampNumber(data.mcPlayerLimit, 1, 20, DEFAULT_SETTINGS.mcPlayerLimit),
   }
 }

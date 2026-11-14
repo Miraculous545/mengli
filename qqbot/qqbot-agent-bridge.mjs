@@ -166,6 +166,7 @@ function defaultSettings() {
     memoryAutoProfile: false,
     memoryAutoProfileEvery: 20,
     memoryIsolatedGroups: [],
+    sessionResetMinutes: 60,
     mcPlayerLimit: 5,
   }
 }
@@ -185,6 +186,7 @@ function normalizeSettings(input) {
     memoryAutoProfile: typeof data.memoryAutoProfile === 'boolean' ? data.memoryAutoProfile : false,
     memoryAutoProfileEvery: clampNumber(data.memoryAutoProfileEvery, 5, 500, 20),
     memoryIsolatedGroups: normalizeIsolatedGroups(data.memoryIsolatedGroups),
+    sessionResetMinutes: clampNumber(data.sessionResetMinutes, 0, 1440, 60),
     mcPlayerLimit: clampNumber(data.mcPlayerLimit, 1, 20, 5),
   }
 }
@@ -706,6 +708,13 @@ function sessionRotationReason(entry) {
   if (!entry?.sessionId) return ''
   if (AGENT_MODEL && entry.model !== AGENT_MODEL) {
     return entry.model ? `模型切换 ${entry.model} → ${AGENT_MODEL}` : '模型切换（旧会话）'
+  }
+  const resetMinutes = Number(settings?.sessionResetMinutes) || 0
+  if (resetMinutes > 0) {
+    const createdAt = Date.parse(entry.createdAt || entry.updatedAt || '')
+    if (Number.isFinite(createdAt) && Date.now() - createdAt >= resetMinutes * 60 * 1000) {
+      return `会话超过 ${resetMinutes} 分钟`
+    }
   }
   const contextUsed = Number(entry.contextUsed) || 0
   if (contextUsed >= SESSION_MAX_CONTEXT) return `上下文 ${contextUsed} tokens`
@@ -2893,9 +2902,11 @@ async function runConversationTurn(message, text, job, media = null) {
       }
 
       if (result.sessionId && !SIMULATE) {
+        const sessionNow = new Date().toISOString()
         sessions.set(key, {
           sessionId: result.sessionId,
-          updatedAt: new Date().toISOString(),
+          createdAt: rotationReason ? sessionNow : (previous?.createdAt || sessionNow),
+          updatedAt: sessionNow,
           contextUsed: result.contextUsed,
           contextWindow: result.contextWindow,
           turnCount: result.turnCount || (rotationReason ? 1 : Number(previous?.turnCount || 0) + 1),
@@ -4140,9 +4151,10 @@ if (personaGuardTestIndex >= 0) {
 const sessionRotationTestIndex = process.argv.indexOf('--test-session-rotation')
 if (sessionRotationTestIndex >= 0) {
   for (const sample of [
-    { name: '超上下文', entry: { sessionId: 'sess_x', contextUsed: SESSION_MAX_CONTEXT, turnCount: 2 } },
-    { name: '超轮数', entry: { sessionId: 'sess_x', contextUsed: 1000, turnCount: SESSION_MAX_TURNS } },
-    { name: '正常复用', entry: { sessionId: 'sess_x', contextUsed: 1000, turnCount: 2 } },
+    { name: '超上下文', entry: { sessionId: 'sess_x', model: AGENT_MODEL || '', contextUsed: SESSION_MAX_CONTEXT, turnCount: 2 } },
+    { name: '超轮数', entry: { sessionId: 'sess_x', model: AGENT_MODEL || '', contextUsed: 1000, turnCount: SESSION_MAX_TURNS } },
+    { name: '超时间', entry: { sessionId: 'sess_x', model: AGENT_MODEL || '', contextUsed: 1000, turnCount: 2, createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() } },
+    { name: '正常复用', entry: { sessionId: 'sess_x', model: AGENT_MODEL || '', contextUsed: 1000, turnCount: 2 } },
     { name: '没有会话', entry: null },
   ]) {
     console.log(JSON.stringify({ sample: sample.name, reason: sessionRotationReason(sample.entry) }))

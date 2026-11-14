@@ -512,6 +512,8 @@
         <label class="setting-row"><span>智能判断</span><input type="checkbox" id="setAutoSmart" /></label>
         <p class="setting-hint">文字点名“梦璃”100% 交给模型判断是否回复；灌水/重复/刷屏跳过；群人数越多，中等相关概率和每群频率上限自动降低。</p>
         <label class="setting-row"><span>同一用户冷却（秒）</span><input type="number" id="setAutoUserCooldown" min="0" max="3600" class="num" /></label>
+        <label class="setting-row"><span>定时清空会话（分钟）</span><input type="number" id="setSessionReset" min="0" max="1440" class="num" /></label>
+        <p class="setting-hint">会话从创建起超过该时间自动重开，避免越聊越慢；0 表示只用上下文/轮数阈值。</p>
 
         <label class="setting-row"><span>群友记忆</span><input type="checkbox" id="setMemory" /></label>
         <p class="setting-hint">按群友记住发言、备注和画像；只存本地 SQLite。</p>
@@ -1138,6 +1140,7 @@
       el('setMemoryAuto').checked = Boolean(settings.memoryAutoProfile)
       el('setMemoryEvery').value = String(Number(settings.memoryAutoProfileEvery) || 20)
       el('setMemoryIsolated').value = (Array.isArray(settings.memoryIsolatedGroups) ? settings.memoryIsolatedGroups : []).join(', ')
+      el('setSessionReset').value = String(Number(settings.sessionResetMinutes ?? 60))
       el('settingsError').classList.add('hidden')
       const full = Number(state.status.groupFullMessages || 0)
       el('settingsWarning').textContent = full > 0
@@ -1165,6 +1168,7 @@
         memoryAutoProfile: el('setMemoryAuto').checked,
         memoryAutoProfileEvery: Number(el('setMemoryEvery').value) || 20,
         memoryIsolatedGroups: el('setMemoryIsolated').value,
+        sessionResetMinutes: Number(el('setSessionReset').value) || 0,
       }
       el('settingsSave').disabled = true
       try {
