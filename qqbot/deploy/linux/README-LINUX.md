@@ -31,7 +31,7 @@ https://opencode.ai/zen/go/v1
 
 ```bash
 sudo mkdir -p /opt/qqbot
-sudo unzip mengli-deploy-linux-*.zip -d /opt
+sudo unzip mengli-linux.zip -d /opt
 # 如果压缩包内层是 qqbot/，确认 /opt/qqbot/qqbot-agent-bridge.mjs 存在
 cd /opt/qqbot
 sudo bash deploy/linux/deploy-linux.sh --user <运行用户> --install-deps

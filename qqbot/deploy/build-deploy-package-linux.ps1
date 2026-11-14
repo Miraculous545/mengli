@@ -85,7 +85,7 @@ $firstRun = @'
 '@
 [IO.File]::WriteAllText((Join-Path $pkg 'FIRST-RUN-LINUX.txt'), $firstRun, (New-Object System.Text.UTF8Encoding($true)))
 
-$zip = Join-Path $OutputDir "mengli-deploy-linux-$stamp.zip"
+$zip = Join-Path $OutputDir "mengli-linux.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Write-Host '压缩 Linux 部署包...'
 Compress-Archive -Path $pkg -DestinationPath $zip -Force
