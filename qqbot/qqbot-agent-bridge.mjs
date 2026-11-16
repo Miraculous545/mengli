@@ -1171,17 +1171,22 @@ async function getOnlineNamesByServer(status) {
     const endpoints = serverEndpoints(server)
     if (!endpoints.length) continue
     tasks.push((async () => {
+      const collected = new Set()
       for (const endpoint of endpoints) {
         try {
           const sample = await getMcPlayerSample({ ...endpoint, timeoutMs: 3000 })
-          const expected = Math.max(Number(server.onlineCount) || 0, Number(sample.online) || 0)
-          if (sample.names.length && sample.names.length >= expected) {
-            namesByServer.set(String(server.id), sample.names)
-            return
+          for (const name of sample.names || []) {
+            const value = String(name || '').trim()
+            if (value) collected.add(value)
           }
+          if (collected.size >= (Number(server.onlineCount) || 0)) break
         } catch {
           // 换下一个地址/备用线路
         }
+      }
+      const onlineCount = Number(server.onlineCount) || 0
+      if (collected.size && collected.size >= onlineCount) {
+        namesByServer.set(String(server.id), [...collected])
       }
     })())
   }

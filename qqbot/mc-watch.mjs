@@ -297,17 +297,21 @@ export function startMcWatch({ root, groups, intervalMs = 20000, send, log, play
       const endpoints = endpointsOf(server)
       if (!endpoints.length) continue
       sampleTasks.push((async () => {
+        const collected = new Set()
         for (const endpoint of endpoints) {
           try {
             const sample = await getMcPlayerSample({ ...endpoint, timeoutMs: 3000 })
-            const expected = Math.max(onlineCount, Number(sample.online) || 0)
-            if (sample.names.length && sample.names.length >= expected) {
-              players.set(id, sample.names)
-              return
+            for (const name of sample.names || []) {
+              const value = String(name || '').trim()
+              if (value) collected.add(value)
             }
+            if (collected.size >= onlineCount) break
           } catch {
             // 主地址失败或没有 sample 时继续尝试次 IP/备用线路
           }
+        }
+        if (collected.size && collected.size >= onlineCount) {
+          players.set(id, [...collected])
         }
       })())
     }
