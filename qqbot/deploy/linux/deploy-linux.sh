@@ -209,6 +209,7 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 APP_ID="$(read_required QQBOT_APPID 0)"
 APP_SECRET="$(read_required QQBOT_SECRET 1)"
+say "皮肤站 API key 需要 plugin:mengli:use 和 plugin:minecraft-server:use；权限在创建时固化，新增插件后请新建 key"
 SKIN_KEY="$(read_required SWUSTMC_API_KEY 1)"
 INGEST_TOKEN="$(read_required MENGLI_INGEST_TOKEN 1)"
 if [[ "$DRY_RUN" -eq 0 ]]; then

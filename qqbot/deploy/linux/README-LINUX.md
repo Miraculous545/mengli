@@ -135,6 +135,8 @@ QQBOT_AGENT_CWD=/opt/qqbot/workspace
 ZCODE_CLI=/绝对路径/zcode
 ```
 
+`SWUSTMC_API_KEY` 需要 `plugin:mengli:use`（使用梦璃）和 `plugin:minecraft-server:use`（使用 Minecraft 服务器）权限。API key 的权限是创建时的快照；站点新增插件后旧 key 不会自动补权限，需要新建 key 后更新此文件并重启 `mengli-qqbot`。
+
 ## 4. 常用命令
 
 ```bash
