@@ -297,9 +297,11 @@ export function startMengliPush({ root, memoryStore, log }) {
       if (now - lastErrorLogAt > 5 * 60 * 1000) {
         lastErrorLogAt = now
         const detail = String(error.message || error).slice(0, 240)
-        log(/token/i.test(detail)
-          ? '梦璃推送失败：皮肤站与机器人的 MENGLI_INGEST_TOKEN 不一致或站点未配置，请同步两边的 token'
-          : `梦璃推送失败：${detail}`)
+        log(/没有权限使用该插件/.test(detail)
+          ? '梦璃推送失败：机器人使用的 SWUSTMC_API_KEY 缺少 plugin:mengli:use 权限，请在皮肤站 API 密钥/角色里授权“使用 梦璃”'
+          : /token/i.test(detail)
+            ? '梦璃推送失败：皮肤站与机器人的 MENGLI_INGEST_TOKEN 不一致或站点未配置，请同步两边的 token'
+            : `梦璃推送失败：${detail}`)
       }
     } finally {
       running = false

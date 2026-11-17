@@ -130,7 +130,7 @@ node -e "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('
 |---|---|
 | `QQBOT_APPID` | QQ 开放平台机器人 AppID |
 | `QQBOT_SECRET` | QQ 开放平台机器人 AppSecret |
-| `SWUSTMC_API_KEY` | 皮肤站只读 API key |
+| `SWUSTMC_API_KEY` | 皮肤站只读 API key；需有 `plugin:mengli:use` 和 `plugin:minecraft-server:use` 权限 |
 | `MENGLI_INGEST_TOKEN` | 梦璃插件推送 token |
 | `QQBOT_AGENT_MODEL` | 建议 `qwen3.8-flash`；留空则跟随 ZCode 默认 |
 

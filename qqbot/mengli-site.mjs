@@ -26,6 +26,9 @@ async function post(path, body, { timeoutMs = TIMEOUT_MS } = {}) {
     if (/token/i.test(message)) {
       throw new Error('皮肤站梦璃插件 token 不一致或未配置，请让站点和机器人使用同一个 MENGLI_INGEST_TOKEN')
     }
+    if (/没有权限使用该插件/.test(message)) {
+      throw new Error('皮肤站 API key 缺少 plugin:mengli:use 权限，请给机器人使用的 API key 授权“使用 梦璃”')
+    }
     throw new Error(message)
   }
   return data?.data ?? data
