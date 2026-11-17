@@ -231,6 +231,7 @@ function memorySnapshot(memoryStore) {
 export function startMengliPush({ root, memoryStore, log }) {
   const endpoint = (process.env.MENGLI_INGEST_URL || DEFAULT_ENDPOINT).trim()
   const token = (process.env.MENGLI_INGEST_TOKEN || '').trim()
+  const apiKey = (process.env.SWUSTMC_API_KEY || '').trim()
   if (!token) {
     log('梦璃站点推送未启用：未配置 MENGLI_INGEST_TOKEN')
     return () => {}
@@ -268,7 +269,10 @@ export function startMengliPush({ root, memoryStore, log }) {
 
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(20000),
       })
@@ -298,7 +302,9 @@ export function startMengliPush({ root, memoryStore, log }) {
         lastErrorLogAt = now
         const detail = String(error.message || error).slice(0, 240)
         log(/没有权限使用该插件/.test(detail)
-          ? '梦璃推送失败：机器人使用的 SWUSTMC_API_KEY 缺少 plugin:mengli:use 权限，请在皮肤站 API 密钥/角色里授权“使用 梦璃”'
+          ? (apiKey
+            ? '梦璃推送失败：机器人使用的 SWUSTMC_API_KEY 缺少 plugin:mengli:use 权限，请在皮肤站 API 密钥/角色里授权“使用 梦璃”'
+            : '梦璃推送失败：未配置 SWUSTMC_API_KEY，且游客没有“使用 梦璃”权限；请配置 API key')
           : /token/i.test(detail)
             ? '梦璃推送失败：皮肤站与机器人的 MENGLI_INGEST_TOKEN 不一致或站点未配置，请同步两边的 token'
             : `梦璃推送失败：${detail}`)

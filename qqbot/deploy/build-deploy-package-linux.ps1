@@ -8,6 +8,11 @@ $root = Split-Path -Parent $PSScriptRoot
 if (-not $OutputDir) { $OutputDir = Join-Path $root 'deploy-out' }
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
+$node = 'C:\Users\Administrator\tools\node-v24.22.0-win-x64\node.exe'
+if (-not (Test-Path $node)) {
+  $node = (Get-Command node -ErrorAction Stop).Source
+}
+
 function Write-Warn([string]$message) {
   Write-Host "WARN: $message" -ForegroundColor Yellow
 }
@@ -48,7 +53,7 @@ const db = new DatabaseSync(process.argv[2]);
 db.exec("VACUUM INTO '" + process.argv[3].replace(/'/g, "''") + "'");
 db.close();
 '@ | Set-Content -Path $jsFile -Encoding UTF8
-    & node $jsFile $sourceDb $targetDb
+    & $node $jsFile $sourceDb $targetDb
     $vacuumCode = $LASTEXITCODE
     Remove-Item $jsFile -Force -ErrorAction SilentlyContinue
     if ($vacuumCode -ne 0) { throw '导出 memory.db 失败' }

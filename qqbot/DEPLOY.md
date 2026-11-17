@@ -134,6 +134,8 @@ node -e "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('
 | `MENGLI_INGEST_TOKEN` | 梦璃插件推送 token |
 | `QQBOT_AGENT_MODEL` | 建议 `qwen3.8-flash`；留空则跟随 ZCode 默认 |
 
+`SWUSTMC_API_KEY` 的权限在创建时固化。站点新增插件后，旧 key 不会自动获得 `plugin:mengli:use`；需要在皮肤站后台新建 key，更新环境变量并重启看门狗。
+
 MC 播报和访问控制：
 
 | 变量 | 说明 |

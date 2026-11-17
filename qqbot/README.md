@@ -254,7 +254,7 @@ QQ 群里的图片/表情包附件会下载到 `runtime/inbound-media/`，然后
 - `/我的皮肤`（别名 `/myskin`）：按 QQ 绑定关系找到站点账号的当前角色，同样发送文字和皮肤/披风图片；需要先绑定 QQ。QQ 有时把 `@梦璃` 留在纯文本里，桥接会先去掉开头的称呼再识别指令，`@梦璃 /我的皮肤` 和 `/我的皮肤` 都能触发。
 - 角色查询先按站点用户名/昵称找，再按角色所有者 ID 兜底，所以站点登录名和角色名不一致时也能找到。成功校验过的绑定会持久化到 `runtime/mengli-bindings.json`；插件重装后桥接会随推送把绑定写回站点，机器人侧和站点「我的记忆」都不用重新绑定。
 
-API key 只从环境变量 `SWUSTMC_API_KEY` 读取，不写入仓库；桥接只调用 GET 接口，不做创建、修改或删除。发给模型的子进程会主动移除这个变量，避免被提示词套取。API key 必须拥有 `plugin:mengli:use`（使用梦璃）和 `plugin:minecraft-server:use`（使用 Minecraft 服务器）权限；皮肤站重装插件或调整角色/数据后，需要重新给 API key 或其所属角色授权。
+API key 只从环境变量 `SWUSTMC_API_KEY` 读取，不写入仓库；桥接会用它调用皮肤站的只读管理接口和梦璃/MC 插件接口，不创建、修改或删除站点核心数据。发给模型的子进程会主动移除这个变量，避免被提示词套取。API key 必须拥有 `plugin:mengli:use`（使用梦璃）和 `plugin:minecraft-server:use`（使用 Minecraft 服务器）权限。API key 的权限是创建时的快照，之后给角色新增插件权限不会自动补到旧 key；安装新插件或调整权限后，需要在后台新建一把 key，更新 `SWUSTMC_API_KEY` 并重启看门狗。
 
 注意：当前 API key 调 `/api/plugins/minecraft-server/admin/overview` 返回 403。在线玩家名单优先读站点心跳；心跳为空时桥接会直接查询服务器 status ping 的 `players.sample`，因此大多数服也能拿到名字。服务端隐藏 sample 或在线人数超过 sample 长度时，仍需要 `minecraft-server-report` 心跳插件或管理员登录 Cookie 才能完整判断进出。
 
