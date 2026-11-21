@@ -199,6 +199,7 @@ function memorySnapshot(memoryStore) {
     const bindingKeys = connections.map(connection => `${connection}:${member.userOpenid}`)
     return {
       id: member.id,
+      userOpenid: member.userOpenid,
       connectionKey: connections[0] || member.connectionKey,
       connections,
       scopeKey: member.scopeKey || 'global',
