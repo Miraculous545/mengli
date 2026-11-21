@@ -172,6 +172,11 @@ function logView(event) {
       event.size ? `${(Number(event.size) / 1024).toFixed(0)} KB` : '',
       event.error,
     ].filter(Boolean).join(' · ')
+  } else if (name === 'blacklist_skip') {
+    label = '黑名单跳过'
+    badge = 'is-error'
+    categories.push('blacklist', 'other')
+    detail = `用户 ${userId || '—'}${event.reason ? ` · ${event.reason}` : ' · 已拉黑'}`
   } else if (name === 'memory') {
     label = '记忆整理'
     badge = 'is-agent'
@@ -212,6 +217,7 @@ function renderLogs(state) {
     ['reply', '回复'],
     ['agent', 'Agent'],
     ['auto', '自动回复'],
+    ['blacklist', '黑名单'],
     ['error', '错误'],
     ['other', '其他'],
   ]
