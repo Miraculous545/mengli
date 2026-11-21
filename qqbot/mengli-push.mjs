@@ -262,6 +262,7 @@ export function startMengliPush({ root, memoryStore, log }) {
         logs: batch.events,
         settings: readLocalSettings(settingsFile),
         bindings,
+        blacklist: memoryStore.listBlacklistForSync(),
         personaSeed: readLocalPersonaSeed(root),
         pushedAt: new Date().toISOString(),
       }
@@ -290,6 +291,8 @@ export function startMengliPush({ root, memoryStore, log }) {
       applyRemoteSettings(settingsFile, data?.settings, log)
       applyRemotePersona(root, data?.persona, data?.personaEnabled, log)
       applyRemoteMemoryOverrides(root, memoryStore, data?.memoryOverrides, log)
+      const blacklistChanged = memoryStore.mergeBlacklist(data?.blacklist)
+      if (blacklistChanged) log(`梦璃站点黑名单已同步到本地：${blacklistChanged} 项`)
       state = {
         offset: batch.nextOffset,
         lastMemoryAt: includeMemory ? now : state.lastMemoryAt,

@@ -16,6 +16,9 @@ const MAX_FACT_VALUE = 500
 const MAX_MESSAGE = 1000
 const MAX_NOTE = 500
 const MAX_KEEP_MESSAGES = 200
+const MAX_BLACKLIST = 1000
+const MAX_BLACKLIST_REASON = 300
+const MAX_BLACKLIST_NICKNAME = 100
 const NL = String.fromCharCode(10)
 const FACT_KEYS = new Set(['preference', 'interest', 'identity', 'habit', 'topic', 'emotion', 'note'])
 const FACT_LABELS = {
@@ -125,6 +128,47 @@ function memberFromRow(row, noteCount = undefined) {
   }
 }
 
+function normalizeBlacklistConnection(value) {
+  const key = clampText(value, 240)
+  if (key === 'global') return key
+  return /^(group|c2c|channel):[^\s:]{3,200}$/.test(key) ? key : ''
+}
+
+function normalizeBlacklistEntry(input = {}) {
+  const connectionKey = normalizeBlacklistConnection(input.connectionKey)
+  const userOpenid = clampText(input.userOpenid, 200)
+  if (!connectionKey || !userOpenid || /\s/.test(userOpenid)) return null
+  const now = Date.now()
+  const createdAt = Number(input.createdAt) || now
+  return {
+    connectionKey,
+    userOpenid,
+    nickname: clampText(input.nickname, MAX_BLACKLIST_NICKNAME),
+    reason: clampText(input.reason, MAX_BLACKLIST_REASON),
+    active: input.active === undefined
+      ? true
+      : (input.active === true || Number(input.active) === 1 || String(input.active).toLowerCase() === 'true'),
+    source: clampText(input.source || 'local', 20) || 'local',
+    createdAt,
+    updatedAt: Math.max(createdAt, Number(input.updatedAt) || now),
+  }
+}
+
+function blacklistFromRow(row) {
+  if (!row) return null
+  return {
+    id: Number(row.id),
+    connectionKey: row.connection_key,
+    userOpenid: row.user_openid,
+    nickname: row.nickname || '',
+    reason: row.reason || '',
+    active: Number(row.active) === 1,
+    source: row.source || 'local',
+    createdAt: Number(row.created_at || 0),
+    updatedAt: Number(row.updated_at || 0),
+  }
+}
+
 export class MemoryStore {
   constructor(filePath) {
     this.filePath = filePath
@@ -190,6 +234,19 @@ export class MemoryStore {
         PRIMARY KEY (member_id, connection_key)
       );
       CREATE INDEX IF NOT EXISTS idx_member_connections_key ON member_connections(connection_key);
+      CREATE TABLE IF NOT EXISTS member_blacklist (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        connection_key TEXT NOT NULL,
+        user_openid TEXT NOT NULL,
+        nickname TEXT NOT NULL DEFAULT '',
+        reason TEXT NOT NULL DEFAULT '',
+        active INTEGER NOT NULL DEFAULT 1,
+        source TEXT NOT NULL DEFAULT 'local',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(connection_key, user_openid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_blacklist_active ON member_blacklist(active, updated_at DESC);
       CREATE TABLE IF NOT EXISTS memory_meta (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
@@ -878,16 +935,145 @@ export class MemoryStore {
     return Number(result.changes || 0)
   }
 
+  getBlacklistEntry(connectionKey, userOpenid) {
+    const row = this.db.prepare(
+      'SELECT * FROM member_blacklist WHERE connection_key = ? AND user_openid = ?',
+    ).get(String(connectionKey || ''), String(userOpenid || ''))
+    return blacklistFromRow(row)
+  }
+
+  upsertBlacklist(entry, { force = false } = {}) {
+    const normalized = normalizeBlacklistEntry(entry)
+    if (!normalized) throw new Error('黑名单对象不合法')
+    const existing = this.getBlacklistEntry(normalized.connectionKey, normalized.userOpenid)
+    if (existing && !force && normalized.updatedAt <= existing.updatedAt) return existing
+    const createdAt = existing ? existing.createdAt : normalized.createdAt
+    const updatedAt = force
+      ? Math.max(normalized.updatedAt, Number(existing?.updatedAt || 0) + 1)
+      : normalized.updatedAt
+    this.db.prepare(`
+      INSERT INTO member_blacklist (
+        connection_key, user_openid, nickname, reason, active, source, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(connection_key, user_openid) DO UPDATE SET
+        nickname = excluded.nickname, reason = excluded.reason, active = excluded.active,
+        source = excluded.source, updated_at = excluded.updated_at
+    `).run(
+      normalized.connectionKey,
+      normalized.userOpenid,
+      normalized.nickname,
+      normalized.reason,
+      normalized.active ? 1 : 0,
+      normalized.source,
+      createdAt,
+      updatedAt,
+    )
+    return this.getBlacklistEntry(normalized.connectionKey, normalized.userOpenid)
+  }
+
+  addBlacklist({ connectionKey, userOpenid, nickname = '', reason = '', source = 'local' } = {}) {
+    const existing = this.getBlacklistEntry(connectionKey, userOpenid)
+    const now = Date.now()
+    return this.upsertBlacklist({
+      connectionKey,
+      userOpenid,
+      nickname: nickname || existing?.nickname || '',
+      reason: reason || existing?.reason || '',
+      active: true,
+      source,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    }, { force: true })
+  }
+
+  removeBlacklist({ connectionKey, userOpenid, source = 'local' } = {}) {
+    const existing = this.getBlacklistEntry(connectionKey, userOpenid)
+    if (!existing) return null
+    const now = Date.now()
+    return this.upsertBlacklist({
+      ...existing,
+      active: false,
+      source,
+      updatedAt: now,
+    }, { force: true })
+  }
+
+  mergeBlacklist(entries = []) {
+    let changed = 0
+    for (const raw of Array.isArray(entries) ? entries : []) {
+      const entry = normalizeBlacklistEntry(raw)
+      if (!entry) continue
+      const existing = this.getBlacklistEntry(entry.connectionKey, entry.userOpenid)
+      if (existing && entry.updatedAt <= existing.updatedAt) continue
+      this.upsertBlacklist(entry)
+      changed += 1
+    }
+    return changed
+  }
+
+  findBlacklistHit({ connectionKey = '', userId = '', authorIds = [] } = {}) {
+    const ids = [...new Set([userId, ...(Array.isArray(authorIds) ? authorIds : [])]
+      .map(value => String(value || '').trim())
+      .filter(Boolean))]
+    if (!ids.length) return null
+    const placeholders = ids.map(() => '?').join(',')
+    if (connectionKey) {
+      const exact = this.db.prepare(`
+        SELECT * FROM member_blacklist
+        WHERE active = 1 AND connection_key = ? AND user_openid IN (${placeholders})
+        ORDER BY updated_at DESC LIMIT 1
+      `).get(String(connectionKey), ...ids)
+      if (exact) return blacklistFromRow(exact)
+    }
+    const global = this.db.prepare(`
+      SELECT * FROM member_blacklist
+      WHERE active = 1 AND connection_key = 'global' AND user_openid IN (${placeholders})
+      ORDER BY updated_at DESC LIMIT 1
+    `).get(...ids)
+    return blacklistFromRow(global)
+  }
+
+  listBlacklist({ query = '', limit = 200, includeInactive = false } = {}) {
+    const keyword = String(query || '').trim()
+    const max = Math.max(1, Math.min(MAX_BLACKLIST, Number(limit) || 200))
+    const like = `%${keyword}%`
+    return this.db.prepare(`
+      SELECT * FROM member_blacklist
+      WHERE (? = 1 OR active = 1)
+        AND (? = '' OR nickname LIKE ? OR reason LIKE ? OR connection_key LIKE ? OR user_openid LIKE ?)
+      ORDER BY active DESC, updated_at DESC LIMIT ?
+    `).all(includeInactive ? 1 : 0, keyword, like, like, like, like, max)
+      .map(blacklistFromRow)
+  }
+
+  listBlacklistForSync(limit = MAX_BLACKLIST) {
+    const max = Math.max(1, Math.min(MAX_BLACKLIST, Number(limit) || MAX_BLACKLIST))
+    return this.db.prepare(
+      'SELECT * FROM member_blacklist ORDER BY updated_at DESC LIMIT ?',
+    ).all(max).map(blacklistFromRow)
+  }
+
+  blacklistStats() {
+    const active = this.db.prepare('SELECT COUNT(*) AS count FROM member_blacklist WHERE active = 1').get()
+    const total = this.db.prepare('SELECT COUNT(*) AS count FROM member_blacklist').get()
+    return {
+      active: Number(active?.count || 0),
+      total: Number(total?.count || 0),
+    }
+  }
+
   stats() {
     const members = this.db.prepare('SELECT COUNT(*) AS count FROM members').get()
     const messages = this.db.prepare('SELECT COUNT(*) AS count FROM member_messages').get()
     const notes = this.db.prepare('SELECT COUNT(*) AS count FROM member_notes').get()
     const analyzed = this.db.prepare('SELECT COUNT(*) AS count FROM members WHERE last_analyzed_at > 0').get()
+    const blacklist = this.db.prepare('SELECT COUNT(*) AS count FROM member_blacklist WHERE active = 1').get()
     return {
       members: Number(members?.count || 0),
       messages: Number(messages?.count || 0),
       notes: Number(notes?.count || 0),
       analyzed: Number(analyzed?.count || 0),
+      blacklist: Number(blacklist?.count || 0),
     }
   }
 }

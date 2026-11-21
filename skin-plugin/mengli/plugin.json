@@ -1,8 +1,8 @@
 {
   "id": "mengli",
   "name": "梦璃",
-  "version": "1.5.7",
-  "description": "梦璃 QQ 群日志与群友记忆面板",
+  "version": "1.5.8",
+  "description": "梦璃 QQ 群日志、群友记忆与黑名单面板",
   "author": "星空社技术组",
   "mainClass": "cn.edu.swust.mc.skin.plugins.mengli.MengliPlugin",
   "client": "client.mjs",
@@ -28,11 +28,18 @@
       "order": 21
     },
     {
+      "title": "梦璃黑名单",
+      "category": "社团服务",
+      "icon": "users",
+      "path": "#/plugin/mengli?tab=blacklist",
+      "order": 22
+    },
+    {
       "title": "梦璃设置",
       "category": "社团服务",
       "icon": "settings",
       "path": "#/plugin/mengli?tab=settings",
-      "order": 22
+      "order": 23
     }
   ]
 }

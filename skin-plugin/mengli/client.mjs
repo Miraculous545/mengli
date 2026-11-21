@@ -51,6 +51,7 @@ const STYLE = `
   .mengli-setting-row label { flex: 1; font-size: 14px; }
   .mengli-setting-row small { display: block; color: var(--muted, #667085); font-size: 12px; margin-top: 3px; }
   .mengli-setting-row input[type=number], .mengli-setting-row input[type=text] { width: 120px; border: 1px solid var(--line, #d0d5dd); border-radius: 8px; padding: 7px 9px; background: transparent; color: inherit; }
+  .mengli-setting-row select { max-width: 360px; border: 1px solid var(--line, #d0d5dd); border-radius: 8px; padding: 7px 9px; background: transparent; color: inherit; }
   .mengli-setting-row input[type=range] { width: 220px; }
   .mengli-setting-row input[type=checkbox] { width: 20px; height: 20px; accent-color: #2563eb; }
   .mengli-prob { min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
@@ -302,6 +303,59 @@ function renderMemory(state) {
   `
 }
 
+function renderBlacklist(state) {
+  const members = state.members || []
+  const entries = state.blacklist || []
+  const candidates = []
+  const seen = new Set()
+  for (const member of members) {
+    const connections = Array.isArray(member.connections) && member.connections.length
+      ? member.connections
+      : [member.connectionKey].filter(Boolean)
+    for (const connection of connections) {
+      const key = `${connection}\n${member.userOpenid}`
+      if (!connection || !member.userOpenid || seen.has(key)) continue
+      seen.add(key)
+      candidates.push({ connection, member })
+    }
+  }
+  const options = candidates.map((item, index) =>
+    `<option value="${index}" data-connection="${esc(item.connection)}" data-user="${esc(item.member.userOpenid)}" data-nickname="${esc(item.member.nickname || '')}">${esc(item.member.nickname || shortId(item.member.userOpenid))} · ${esc(shortId(item.connection))}</option>`).join('')
+  return `
+    <div class="mengli-panel">
+      <form class="mengli-settings" data-mengli-blacklist-form>
+        <h3 style="margin:0 0 4px">黑名单</h3>
+        <p class="mengli-muted">加入后梦璃不再回复该群友；站点保存后，机器人下一次推送（约 15 秒）同步。解除后下一条消息恢复回复。黑名单不会删除记忆。</p>
+        <div class="mengli-setting-row">
+          <label>群友 / 会话<small>来自已同步的群友记忆；同一个人的多个群需要分别加入。</small></label>
+          <select name="candidate" ${candidates.length ? '' : 'disabled'}>
+            ${options || '<option value="">暂无可选群友</option>'}
+          </select>
+        </div>
+        <div class="mengli-setting-row">
+          <label>原因<small>可选，方便以后核对。</small></label>
+          <input type="text" name="reason" maxlength="300" placeholder="例如：刷屏、恶意 @、引战" />
+        </div>
+        <p class="mengli-error" data-mengli-blacklist-error hidden></p>
+        <button class="mengli-save" type="submit" ${candidates.length ? '' : 'disabled'}>加入黑名单</button>
+      </form>
+      <div class="mengli-toolbar" style="border-top:1px solid rgba(127,127,127,.14)">
+        <strong>当前黑名单</strong>
+        <span class="mengli-muted">${entries.length} 个</span>
+        <button class="mengli-tab" data-mengli-refresh>刷新</button>
+      </div>
+      <div class="mengli-memory">
+        ${entries.length ? entries.map(entry => `<article class="mengli-card">
+          <h3>${esc(entry.nickname || shortId(entry.userOpenid))}</h3>
+          <div class="mengli-muted">${esc(shortId(entry.connectionKey))} · openid ${esc(shortId(entry.userOpenid))} · ${esc(fmtTime(entry.createdAt))}${entry.source === 'site' ? ' · 站点添加' : ''}</div>
+          <p><strong>原因：</strong>${esc(entry.reason || '未填写')}</p>
+          <button class="mengli-tab" data-mengli-blacklist-remove data-connection="${esc(entry.connectionKey)}" data-user="${esc(entry.userOpenid)}">解除</button>
+        </article>`).join('') : '<div class="mengli-empty">还没有黑名单。</div>'}
+      </div>
+    </div>
+  `
+}
+
 function renderSettings(state) {
   const s = state.settings || {}
   const probability = Math.round((Number(s.autoReplyProbability) || 0) * 100)
@@ -473,13 +527,15 @@ export async function mount(root, ctx) {
   const initialTab = requestedTab === 'bind'
     ? 'bind'
     : !isAdmin ? (requestedTab === 'my-memory' ? 'my-memory' : 'bind')
-      : ['memory', 'settings'].includes(requestedTab) ? requestedTab : 'logs'
+      : ['memory', 'blacklist', 'settings'].includes(requestedTab) ? requestedTab : 'logs'
   const state = {
     tab: initialTab,
     isAdmin,
     logs: [],
     logTotal: 0,
     members: [],
+    blacklist: [],
+    blacklistUpdatedAt: null,
     settings: {},
     settingsUpdatedAt: null,
     persona: '',
@@ -508,6 +564,7 @@ export async function mount(root, ctx) {
         <button class="mengli-tab ${state.tab === 'bind' ? 'active' : ''}" data-mengli-tab="bind">绑定QQ</button>
         ${isAdmin ? `<button class="mengli-tab ${state.tab === 'logs' ? 'active' : ''}" data-mengli-tab="logs">日志</button>
         <button class="mengli-tab ${state.tab === 'memory' ? 'active' : ''}" data-mengli-tab="memory">群友记忆</button>
+        <button class="mengli-tab ${state.tab === 'blacklist' ? 'active' : ''}" data-mengli-tab="blacklist">黑名单</button>
         <button class="mengli-tab ${state.tab === 'settings' ? 'active' : ''}" data-mengli-tab="settings">设置</button>`
           : `<button class="mengli-tab ${state.tab === 'my-memory' ? 'active' : ''}" data-mengli-tab="my-memory">我的记忆</button>`}
       </div>
@@ -528,7 +585,7 @@ export async function mount(root, ctx) {
   root.querySelectorAll('[data-mengli-tab]').forEach(button => {
     button.addEventListener('click', () => {
       const tab = button.dataset.mengliTab
-      if (!['bind', 'logs', 'memory', 'settings', 'my-memory'].includes(tab)) return
+      if (!['bind', 'logs', 'memory', 'blacklist', 'settings', 'my-memory'].includes(tab)) return
       if (tab !== 'bind' && tab !== 'my-memory' && !isAdmin) return
       if (tab === 'my-memory' && isAdmin) return
       state.tab = tab
@@ -567,16 +624,19 @@ export async function mount(root, ctx) {
 
   async function loadAdmin() {
     try {
-      const [logs, memory, settingsData, personaData, tokenData] = await Promise.all([
+      const [logs, memory, settingsData, personaData, tokenData, blacklistData] = await Promise.all([
         ctx.api.get('/plugins/mengli/logs?limit=300'),
         ctx.api.get('/plugins/mengli/memory'),
         ctx.api.get('/plugins/mengli/settings'),
         ctx.api.get('/plugins/mengli/persona').catch(() => ({})),
         ctx.api.get('/plugins/mengli/token').catch(() => ({})),
+        ctx.api.get('/plugins/mengli/blacklist').catch(() => ({ items: [] })),
       ])
       state.logs = Array.isArray(logs?.items) ? logs.items : []
       state.logTotal = Number(logs?.total || state.logs.length)
       state.members = Array.isArray(memory?.members) ? memory.members : []
+      state.blacklist = Array.isArray(blacklistData?.items) ? blacklistData.items : []
+      state.blacklistUpdatedAt = blacklistData?.updatedAt || null
       state.settings = settingsData?.settings || {}
       state.settingsUpdatedAt = settingsData?.updatedAt || null
       state.persona = personaData?.persona || ''
@@ -600,12 +660,14 @@ export async function mount(root, ctx) {
         : state.error
           ? `<div class="mengli-panel"><div class="mengli-error">${esc(state.error)}</div></div>`
           : state.tab === 'memory' ? renderMemory(state)
-            : state.tab === 'settings' ? renderSettings(state)
-              : renderLogs(state)
+            : state.tab === 'blacklist' ? renderBlacklist(state)
+              : state.tab === 'settings' ? renderSettings(state)
+                : renderLogs(state)
     meta.textContent = state.updatedAt
       ? `最近推送：${fmtTime(state.updatedAt)}`
-      : state.settingsUpdatedAt ? `设置更新：${fmtTime(state.settingsUpdatedAt)}`
-        : state.myMemory?.updatedAt ? `记忆更新：${fmtTime(state.myMemory.updatedAt)}` : ''
+      : state.tab === 'blacklist' && state.blacklistUpdatedAt ? `黑名单更新：${fmtTime(state.blacklistUpdatedAt)}`
+        : state.settingsUpdatedAt ? `设置更新：${fmtTime(state.settingsUpdatedAt)}`
+          : state.myMemory?.updatedAt ? `记忆更新：${fmtTime(state.myMemory.updatedAt)}` : ''
     const applyLogFilter = () => {
       const query = state.logQuery.trim().toLowerCase()
       body.querySelectorAll('.mengli-event').forEach(item => {
@@ -826,6 +888,63 @@ export async function mount(root, ctx) {
           ctx.toast?.(error?.message || '保存画像失败', 'error')
         } finally {
           if (button) button.disabled = false
+        }
+      })
+    })
+    const blacklistForm = body.querySelector('[data-mengli-blacklist-form]')
+    if (blacklistForm) {
+      blacklistForm.addEventListener('submit', async event => {
+        event.preventDefault()
+        const select = blacklistForm.querySelector('[name="candidate"]')
+        const option = select?.selectedOptions?.[0]
+        const connectionKey = option?.dataset.connection || ''
+        const userOpenid = option?.dataset.user || ''
+        if (!connectionKey || !userOpenid) {
+          ctx.toast?.('暂无可加入黑名单的群友，请等记忆同步后再试。', 'error')
+          return
+        }
+        const button = blacklistForm.querySelector('.mengli-save')
+        const errorEl = blacklistForm.querySelector('[data-mengli-blacklist-error]')
+        if (button) button.disabled = true
+        if (errorEl) errorEl.hidden = true
+        try {
+          await ctx.api.post('/plugins/mengli/blacklist', {
+            connectionKey,
+            userOpenid,
+            nickname: option.dataset.nickname || '',
+            reason: blacklistForm.querySelector('[name="reason"]')?.value || '',
+          })
+          state.editing = false
+          await loadAdmin()
+          render()
+          ctx.toast?.('已加入黑名单，机器人下一次推送后生效。', 'success')
+        } catch (error) {
+          if (errorEl) {
+            errorEl.hidden = false
+            errorEl.textContent = error?.message || '加入黑名单失败'
+          }
+          ctx.toast?.(error?.message || '加入黑名单失败', 'error')
+        } finally {
+          if (button) button.disabled = false
+        }
+      })
+    }
+    body.querySelectorAll('[data-mengli-blacklist-remove]').forEach(button => {
+      button.addEventListener('click', async () => {
+        const connectionKey = button.dataset.connection || ''
+        const userOpenid = button.dataset.user || ''
+        if (!connectionKey || !userOpenid) return
+        if (button.disabled) return
+        button.disabled = true
+        try {
+          await ctx.api.post('/plugins/mengli/blacklist/remove', { connectionKey, userOpenid })
+          state.editing = false
+          await loadAdmin()
+          render()
+          ctx.toast?.('已解除黑名单，机器人下一次推送后恢复回复。', 'success')
+        } catch (error) {
+          ctx.toast?.(error?.message || '解除黑名单失败', 'error')
+          button.disabled = false
         }
       })
     })

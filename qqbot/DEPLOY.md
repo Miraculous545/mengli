@@ -204,13 +204,14 @@ curl.exe http://127.0.0.1:8765/api/health
 - `runtime/agent-bridge.log`：应出现 `READY`、`目标群 N 个`、`model=qwen3.8-flash`
 - `runtime/watchdog.log`：应有 bridge/monitor 启动记录
 - QQ 群 @ 梦璃发 `/我的记忆`、`/服务器`
+- 监控页「黑名单」标签能正常打开；从「记忆」详情加入/解除后，名单会写入本地 SQLite 并随推送同步到站点
 - 查看 `runtime/bridge-status.json` 的 `connected` 和 `lastError`
 
 ## 8. 备份
 
 建议每天备份：
 
-- `runtime/memory.db`
+- `runtime/memory.db`（包含群友记忆和黑名单）
 - `runtime/mengli-bindings.json`
 - `runtime/bot-settings.json`
 

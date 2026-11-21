@@ -630,6 +630,7 @@ function writeStatus(extra = {}) {
     memoryMessages: memoryStats.messages,
     memoryNotes: memoryStats.notes,
     memoryAnalyzed: memoryStats.analyzed,
+    blacklistActive: memoryStats.blacklist,
     lastMessageAt,
     lastReplyAt,
     lastError,
@@ -3605,6 +3606,22 @@ async function handleDispatch(payload) {
     return
   }
   if (duplicate(message)) return
+
+  const blacklistHit = memoryStore.findBlacklistHit({
+    connectionKey: connectionKeyOf(message),
+    userId: message.userId,
+    authorIds: message.authorIds,
+  })
+  if (blacklistHit) {
+    log(`黑名单跳过 sender=${shortId(message.userId)} peer=${shortId(message.peerId)} reason=${blacklistHit.reason || '-'}`)
+    recordEvent('blacklist_skip', {
+      peerId: message.peerId,
+      userId: message.userId,
+      connectionKey: blacklistHit.connectionKey,
+      reason: blacklistHit.reason,
+    })
+    return
+  }
 
   refreshSettingsIfChanged()
   const mentionNames = resolveMentionNames(message)

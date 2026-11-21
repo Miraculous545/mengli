@@ -310,6 +310,7 @@ const server = http.createServer((request, response) => {
       status: readStatus(),
       settings: readSettings(),
       memoryStats: memoryStore.stats(),
+      blacklistStats: memoryStore.blacklistStats(),
       events,
       groups: buildGroups(events),
       raw: readRawLines(150),
@@ -384,6 +385,48 @@ const server = http.createServer((request, response) => {
   if (url.pathname === '/api/memory/note' && request.method === 'DELETE') {
     const id = Number(url.searchParams.get('id') || 0)
     json(response, 200, { ok: memoryStore.deleteNote(id) })
+    return
+  }
+
+  if (url.pathname === '/api/blacklist' && request.method === 'GET') {
+    const query = url.searchParams.get('query') || ''
+    const limit = Number(url.searchParams.get('limit') || 200)
+    const includeInactive = url.searchParams.get('includeInactive') === '1'
+    json(response, 200, {
+      entries: memoryStore.listBlacklist({ query, limit, includeInactive }),
+      stats: memoryStore.blacklistStats(),
+    })
+    return
+  }
+
+  if (url.pathname === '/api/blacklist' && request.method === 'POST') {
+    readJsonBody(request).then(body => {
+      const member = body.memberId ? memoryStore.getMember(Number(body.memberId)) : null
+      const connectionKey = String(body.connectionKey || member?.connectionKey || '').trim()
+      const userOpenid = String(body.userOpenid || member?.userOpenid || '').trim()
+      const nickname = String(body.nickname || member?.nickname || '').trim()
+      if (!connectionKey || !userOpenid) throw new Error('缺少群聊/私聊或用户 openid')
+      const entry = memoryStore.addBlacklist({
+        connectionKey,
+        userOpenid,
+        nickname,
+        reason: body.reason || '',
+        source: 'local',
+      })
+      json(response, 200, { ok: true, entry, stats: memoryStore.blacklistStats() })
+    }).catch(error => json(response, 400, { error: error.message }))
+    return
+  }
+
+  if (url.pathname === '/api/blacklist' && request.method === 'DELETE') {
+    const connectionKey = String(url.searchParams.get('connectionKey') || '').trim()
+    const userOpenid = String(url.searchParams.get('userOpenid') || '').trim()
+    if (!connectionKey || !userOpenid) {
+      json(response, 400, { error: '缺少群聊/私聊或用户 openid' })
+      return
+    }
+    const entry = memoryStore.removeBlacklist({ connectionKey, userOpenid, source: 'local' })
+    json(response, 200, { ok: true, entry, stats: memoryStore.blacklistStats() })
     return
   }
 

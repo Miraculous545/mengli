@@ -370,6 +370,9 @@
     }
     .memory-add-note { display: flex; gap: 6px; margin-top: 6px; }
     .memory-add-note .text-input { flex: 1; }
+    .blacklist-form { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+    .blacklist-form .text-input { flex: 1 1 180px; }
+    .blacklist-form select.text-input { flex: 1 1 220px; }
     .memory-messages { max-height: 180px; overflow: auto; }
     .spacer { flex: 1; }
     .hidden { display: none !important; }
@@ -455,6 +458,7 @@
           <button data-filter="media">媒体</button>
           <button data-filter="reply">回复</button>
           <button data-filter="agent">Agent</button>
+          <button data-filter="blacklist">黑名单</button>
           <button data-filter="error">错误</button>
         </div>
         <input id="search" type="search" placeholder="搜索群 ID / 用户 / 回复内容…" />
@@ -466,6 +470,7 @@
       <div class="tabs">
         <button class="tab active" data-tab="events">事件流</button>
         <button class="tab" data-tab="memory">记忆</button>
+        <button class="tab" data-tab="blacklist">黑名单</button>
         <button class="tab" data-tab="raw">原始日志</button>
       </div>
       <div class="event-list" id="events"></div>
@@ -476,6 +481,15 @@
           <span id="memoryStats" class="hint">—</span>
         </div>
         <div class="memory-list" id="memoryList"></div>
+      </div>
+      <div class="memory-panel hidden" id="blacklistPanel">
+        <div class="memory-toolbar">
+          <input id="blacklistSearch" type="search" placeholder="搜索昵称 / openid / 原因…" />
+          <button class="tool-btn" id="blacklistRefresh">刷新</button>
+          <span id="blacklistStats" class="hint">—</span>
+        </div>
+        <div class="memory-list" id="blacklistList"></div>
+        <p class="setting-hint" style="margin-top:10px">在「记忆」里打开群友详情，可以把 TA 加入黑名单；解除后下一条消息恢复回复。</p>
       </div>
       <pre class="raw hidden" id="raw"></pre>
     </section>
@@ -567,6 +581,15 @@
           <div class="memory-section-head">最近发言</div>
           <div id="memoryMessages" class="memory-messages"></div>
         </div>
+        <div class="memory-section">
+          <div class="memory-section-head">黑名单</div>
+          <div class="blacklist-form">
+            <select id="memoryBlacklistConnection" class="text-input"></select>
+            <input id="memoryBlacklistReason" class="text-input" placeholder="原因（可选）" maxlength="300" />
+            <button class="tool-btn danger" id="memoryBlacklistAdd">加入黑名单</button>
+          </div>
+          <p class="setting-hint" id="memoryBlacklistStatus"></p>
+        </div>
         <p class="setting-error hidden" id="memoryError"></p>
       </div>
       <div class="modal-actions">
@@ -585,6 +608,7 @@
       status: {},
       settings: { mediaEnabled: true, mcPlayerLimit: 5, autoReplyEnabled: false, autoReplyProbability: 0.1, autoReplyCooldownSeconds: 30 },
       memory: { members: [], stats: {}, detail: null, query: '' },
+      blacklist: { entries: [], stats: {}, query: '' },
       filter: 'all',
       groupFilter: '',
       search: '',
@@ -600,6 +624,7 @@
     const eventsEl = el('events')
     const rawEl = el('raw')
     const memoryPanel = el('memoryPanel')
+    const blacklistPanel = el('blacklistPanel')
     const groupListEl = el('groupList')
     const groupFilterEl = el('groupFilter')
 
@@ -726,6 +751,7 @@
         `群@ ${status.groupAtMessages || 0} / 全量 ${status.groupFullMessages || 0}`,
         `自动回复 ${status.autoReplies || 0} 次${status.autoReplySkipped ? ` / 跳过 ${status.autoReplySkipped}` : ''}${autoEnabled ? `（${autoProbability}%${autoSmart ? ' · 智能' : ''}）` : '（关）'}`,
         `记忆 ${status.memoryMembers || 0} 人 / ${status.memoryMessages || 0} 条`,
+        `黑名单 ${status.blacklistActive || 0} 个`,
         status.lastMessageAt ? `最后消息 ${fmtDateTime(status.lastMessageAt)}` : '暂无消息',
         status.lastError ? `错误：${status.lastError}` : '',
       ].filter(Boolean).join(' · ')
@@ -766,6 +792,7 @@
         if (state.filter === 'media' && event.event !== 'media') return false
         if (state.filter === 'reply' && event.event !== 'reply') return false
         if (state.filter === 'agent' && event.event !== 'agent') return false
+        if (state.filter === 'blacklist' && event.event !== 'blacklist_skip') return false
         if (state.filter === 'error' && event.event !== 'error') return false
       }
       if (state.search) {
@@ -834,6 +861,10 @@
         body = `<div class="ev-line">${badge('指令', 'cmd')}${sim}
           <span class="ev-title">${esc(event.command || '')}</span>
           <span class="ev-meta">${esc(event.args || '')}</span></div>`
+      } else if (event.event === 'blacklist_skip') {
+        body = `<div class="ev-line">${badge('黑名单跳过', 'warn')}${sim}
+          <span class="ev-title">${esc(aliasFor(event.peerId))}</span>
+          <span class="ev-meta">${esc(shortId(event.userId, 8))} · ${esc(event.reason || '已拉黑')}</span></div>`
       } else if (event.event === 'error') {
         body = `<div class="ev-line">${badge('错误', 'error')}${sim}
           <span class="ev-title">${esc(event.scope || '')}</span>
@@ -1102,9 +1133,11 @@
       for (const item of document.querySelectorAll('.tab')) item.classList.toggle('active', item === button)
       const raw = state.tab === 'raw'
       const memory = state.tab === 'memory'
-      eventsEl.classList.toggle('hidden', raw || memory)
+      const blacklist = state.tab === 'blacklist'
+      eventsEl.classList.toggle('hidden', raw || memory || blacklist)
       rawEl.classList.toggle('hidden', !raw)
       memoryPanel.classList.toggle('hidden', !memory)
+      blacklistPanel.classList.toggle('hidden', !blacklist)
       if (raw) {
         if (!state.rawLines.length) {
           try {
@@ -1118,6 +1151,8 @@
         renderRaw()
       } else if (memory) {
         await loadMemory()
+      } else if (blacklist) {
+        await loadBlacklist()
       } else {
         renderEvents(false)
       }
@@ -1257,6 +1292,55 @@
         </div>`).join('')
     }
 
+    async function loadBlacklist(query = state.blacklist.query) {
+      state.blacklist.query = query || ''
+      try {
+        const response = await fetch('/api/blacklist?query=' + encodeURIComponent(state.blacklist.query) + '&limit=300', { cache: 'no-store' })
+        const data = await response.json()
+        state.blacklist.entries = Array.isArray(data.entries) ? data.entries : []
+        state.blacklist.stats = data.stats || {}
+        renderBlacklist()
+      } catch (error) {
+        el('blacklistList').innerHTML = `<div class="empty">加载失败：${esc(error.message)}</div>`
+      }
+    }
+
+    function renderBlacklist() {
+      const stats = state.blacklist.stats || {}
+      el('blacklistStats').textContent = `${stats.active || 0} 个拉黑`
+      const entries = state.blacklist.entries || []
+      if (!entries.length) {
+        el('blacklistList').innerHTML = '<div class="empty">还没有黑名单。打开「记忆」里的群友详情，可以加入黑名单。</div>'
+        return
+      }
+      el('blacklistList').innerHTML = entries.map(entry => `
+        <div class="memory-row" style="cursor:default">
+          <div style="min-width:0">
+            <div class="memory-name">${esc(entry.nickname || shortId(entry.userOpenid))}</div>
+            <div class="memory-sub">${esc(memoryPeerLabel(entry.connectionKey))} · openid ${esc(shortId(entry.userOpenid))} · ${esc(fmtDateTime(entry.createdAt))}${entry.source === 'site' ? ' · 来自站点' : ''}</div>
+            <div class="memory-summary">${esc(entry.reason || '未填写原因')}</div>
+          </div>
+          <div class="memory-badges">
+            <button class="tool-btn danger" data-blacklist-remove data-connection="${esc(entry.connectionKey)}" data-user="${esc(entry.userOpenid)}">解除</button>
+          </div>
+        </div>`).join('')
+    }
+
+    async function removeBlacklist(connectionKey, userOpenid) {
+      if (!connectionKey || !userOpenid) return
+      if (!window.confirm('解除这个群友的黑名单？')) return
+      try {
+        const response = await fetch('/api/blacklist?connectionKey=' + encodeURIComponent(connectionKey) + '&userOpenid=' + encodeURIComponent(userOpenid), {
+          method: 'DELETE',
+        })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || '解除失败')
+        await loadBlacklist()
+      } catch (error) {
+        el('blacklistList').innerHTML = `<div class="empty">解除失败：${esc(error.message)}</div>`
+      }
+    }
+
     async function openMemory(id) {
       try {
         const response = await fetch('/api/memory/member?id=' + encodeURIComponent(id), { cache: 'no-store' })
@@ -1293,6 +1377,12 @@
       el('memoryMessages').innerHTML = messages.length
         ? messages.slice(-20).map(message => `<div class="memory-message"><span>${esc(message.content)}</span><span class="ev-meta">${esc(fmtTime(message.createdAt))}</span></div>`).join('')
         : '<div class="empty">暂无发言</div>'
+      const connections = [...new Set([member.connectionKey, ...(member.connections || [])].filter(Boolean))]
+      el('memoryBlacklistConnection').innerHTML = connections.length
+        ? connections.map(key => `<option value="${esc(key)}">${esc(memoryPeerLabel(key))}</option>`).join('')
+        : '<option value="">没有可用的群聊/私聊</option>'
+      el('memoryBlacklistReason').value = ''
+      el('memoryBlacklistStatus').textContent = ''
       el('memoryError').classList.add('hidden')
     }
 
@@ -1364,6 +1454,40 @@
       }
     }
 
+    async function addMemoryBlacklist() {
+      const detail = state.memory.detail
+      if (!detail) return
+      const connectionKey = el('memoryBlacklistConnection').value
+      if (!connectionKey) {
+        el('memoryBlacklistStatus').textContent = '没有可用的群聊/私聊，无法拉黑。'
+        return
+      }
+      const button = el('memoryBlacklistAdd')
+      button.disabled = true
+      try {
+        const response = await fetch('/api/blacklist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            memberId: detail.member.id,
+            connectionKey,
+            userOpenid: detail.member.userOpenid,
+            nickname: detail.member.nickname,
+            reason: el('memoryBlacklistReason').value.trim(),
+          }),
+        })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || '加入失败')
+        el('memoryBlacklistStatus').textContent = '已加入黑名单，下一条消息起梦璃不再回复。'
+        el('memoryBlacklistReason').value = ''
+        if (state.tab === 'blacklist') await loadBlacklist()
+      } catch (error) {
+        el('memoryBlacklistStatus').textContent = '加入失败：' + error.message
+      } finally {
+        button.disabled = false
+      }
+    }
+
     async function deleteMemoryMember() {
       const detail = state.memory.detail
       if (!detail) return
@@ -1398,6 +1522,17 @@
       if (event.key === 'Enter') void addMemoryNote()
     })
     el('memoryDelete').addEventListener('click', deleteMemoryMember)
+    el('memoryBlacklistAdd').addEventListener('click', addMemoryBlacklist)
+    el('blacklistRefresh').addEventListener('click', () => void loadBlacklist())
+    let blacklistSearchTimer = null
+    el('blacklistSearch').addEventListener('input', event => {
+      clearTimeout(blacklistSearchTimer)
+      blacklistSearchTimer = setTimeout(() => void loadBlacklist(event.target.value.trim()), 200)
+    })
+    el('blacklistList').addEventListener('click', event => {
+      const button = event.target.closest('[data-blacklist-remove]')
+      if (button) void removeBlacklist(button.dataset.connection, button.dataset.user)
+    })
     el('memoryNotes').addEventListener('click', event => {
       const button = event.target.closest('[data-note-id]')
       if (button) void deleteMemoryNote(button.dataset.noteId)

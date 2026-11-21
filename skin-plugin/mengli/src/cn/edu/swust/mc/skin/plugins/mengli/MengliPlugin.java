@@ -15,6 +15,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -39,6 +40,9 @@ public final class MengliPlugin implements SkinPlugin {
     private static final int MAX_NOTES = 20;
     private static final int MAX_NOTE_LENGTH = 500;
     private static final int MAX_TOKEN_LENGTH = 200;
+    private static final int MAX_BLACKLIST = 1000;
+    private static final int MAX_BLACKLIST_REASON = 300;
+    private static final int MAX_BLACKLIST_NICKNAME = 100;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private PluginContext ctx;
@@ -74,6 +78,9 @@ public final class MengliPlugin implements SkinPlugin {
         ctx.registerRoute("GET", "/my-memory", this::myMemory);
         ctx.registerAdminRoute("GET", "/logs", this::logs);
         ctx.registerAdminRoute("GET", "/memory", this::memory);
+        ctx.registerAdminRoute("GET", "/blacklist", this::blacklist);
+        ctx.registerAdminRoute("POST", "/blacklist", this::saveBlacklist);
+        ctx.registerAdminRoute("POST", "/blacklist/remove", this::removeBlacklist);
         ctx.registerAdminRoute("GET", "/summary", this::summary);
         ctx.registerAdminRoute("GET", "/settings", this::getSettings);
         ctx.registerAdminRoute("POST", "/settings", this::saveSettings);
@@ -136,6 +143,7 @@ public final class MengliPlugin implements SkinPlugin {
                 }
                 ctx.setData("bindings", bindings);
             }
+            mergeBlacklistEntries(body.get("blacklist"), "bot");
             String updatedAt = Instant.now().toString();
             ctx.setData("updatedAt", updatedAt);
             Map<String, Object> result = new LinkedHashMap<>();
@@ -147,6 +155,8 @@ public final class MengliPlugin implements SkinPlugin {
             result.put("personaEnabled", Boolean.TRUE.equals(ctx.getData("personaEnabled")));
             result.put("personaUpdatedAt", ctx.getData("personaUpdatedAt"));
             result.put("memoryOverrides", asMapList(ctx.getData("memory_overrides")));
+            result.put("blacklist", currentBlacklist());
+            result.put("blacklistUpdatedAt", ctx.getData("blacklistUpdatedAt"));
             return result;
         }
     }
@@ -525,6 +535,59 @@ public final class MengliPlugin implements SkinPlugin {
         return result;
     }
 
+    private Object blacklist(PluginRequest request) {
+        return blacklistResult(currentBlacklist());
+    }
+
+    private Object saveBlacklist(PluginRequest request) throws Exception {
+        Map<String, Object> body = request.json();
+        String connectionKey = normalizeBlacklistConnection(body == null ? null : body.get("connectionKey"));
+        String userOpenid = clampText(body == null ? null : body.get("userOpenid"), 200);
+        if (connectionKey.isEmpty() || userOpenid.isEmpty()) {
+            throw Web.badRequest("缺少群聊/私聊或用户 openid");
+        }
+        synchronized (lock) {
+            List<Map<String, Object>> entries = asMapList(ctx.getData("blacklist"));
+            Map<String, Object> input = new LinkedHashMap<>();
+            input.put("connectionKey", connectionKey);
+            input.put("userOpenid", userOpenid);
+            input.put("nickname", body == null ? "" : body.get("nickname"));
+            input.put("reason", body == null ? "" : body.get("reason"));
+            input.put("active", true);
+            input.put("source", "site");
+            upsertBlacklistEntry(entries, normalizeBlacklistEntry(input, "site"), true);
+            trimBlacklist(entries);
+            ctx.setData("blacklist", entries);
+            ctx.setData("blacklistUpdatedAt", Instant.now().toString());
+            return blacklistResult(entries);
+        }
+    }
+
+    private Object removeBlacklist(PluginRequest request) throws Exception {
+        Map<String, Object> body = request.json();
+        String connectionKey = normalizeBlacklistConnection(body == null ? null : body.get("connectionKey"));
+        String userOpenid = clampText(body == null ? null : body.get("userOpenid"), 200);
+        if (connectionKey.isEmpty() || userOpenid.isEmpty()) {
+            throw Web.badRequest("缺少群聊/私聊或用户 openid");
+        }
+        synchronized (lock) {
+            List<Map<String, Object>> entries = asMapList(ctx.getData("blacklist"));
+            Map<String, Object> existing = findBlacklistEntry(entries, connectionKey, userOpenid);
+            Map<String, Object> input = new LinkedHashMap<>();
+            input.put("connectionKey", connectionKey);
+            input.put("userOpenid", userOpenid);
+            input.put("nickname", existing == null ? "" : existing.get("nickname"));
+            input.put("reason", existing == null ? "" : existing.get("reason"));
+            input.put("active", false);
+            input.put("source", "site");
+            upsertBlacklistEntry(entries, normalizeBlacklistEntry(input, "site"), true);
+            trimBlacklist(entries);
+            ctx.setData("blacklist", entries);
+            ctx.setData("blacklistUpdatedAt", Instant.now().toString());
+            return blacklistResult(entries);
+        }
+    }
+
     private Object summary(PluginRequest request) {
         List<Map<String, Object>> logs = asMapList(ctx.getData("logs"));
         Object memory = ctx.getData("memory");
@@ -533,6 +596,11 @@ public final class MengliPlugin implements SkinPlugin {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("logs", logs.size());
         result.put("members", members);
+        int blacklist = 0;
+        for (Map<String, Object> entry : asMapList(ctx.getData("blacklist"))) {
+            if (toBoolean(entry.get("active"), false)) blacklist += 1;
+        }
+        result.put("blacklist", blacklist);
         result.put("updatedAt", ctx.getData("updatedAt"));
         return result;
     }
@@ -675,6 +743,132 @@ public final class MengliPlugin implements SkinPlugin {
             if (id.equals(String.valueOf(member.get("id")))) return member;
         }
         return null;
+    }
+
+    private List<Map<String, Object>> currentBlacklist() {
+        List<Map<String, Object>> entries = asMapList(ctx.getData("blacklist"));
+        entries.sort((left, right) -> Long.compare(
+                toLong(right.get("updatedAt"), 0L),
+                toLong(left.get("updatedAt"), 0L)));
+        return entries;
+    }
+
+    private Object blacklistResult(List<Map<String, Object>> entries) {
+        List<Map<String, Object>> active = new ArrayList<>();
+        for (Map<String, Object> entry : entries) {
+            if (toBoolean(entry.get("active"), false)) active.add(entry);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("items", active);
+        result.put("total", active.size());
+        result.put("updatedAt", ctx.getData("blacklistUpdatedAt"));
+        return result;
+    }
+
+    private void mergeBlacklistEntries(Object raw, String source) {
+        List<Map<String, Object>> entries = asMapList(ctx.getData("blacklist"));
+        for (Map<String, Object> incoming : asMapList(raw)) {
+            Map<String, Object> entry = normalizeBlacklistEntry(incoming, source);
+            if (entry == null) continue;
+            upsertBlacklistEntry(entries, entry, false);
+        }
+        trimBlacklist(entries);
+        ctx.setData("blacklist", entries);
+        ctx.setData("blacklistUpdatedAt", Instant.now().toString());
+    }
+
+    private static Map<String, Object> normalizeBlacklistEntry(Map<String, Object> input, String defaultSource) {
+        if (input == null) return null;
+        String connectionKey = normalizeBlacklistConnection(input.get("connectionKey"));
+        String userOpenid = clampText(input.get("userOpenid"), 200);
+        if (connectionKey.isEmpty() || userOpenid.isEmpty()
+                || userOpenid.chars().anyMatch(ch -> Character.isWhitespace(ch))) {
+            return null;
+        }
+        long now = System.currentTimeMillis();
+        long createdAt = toLong(input.get("createdAt"), now);
+        long updatedAt = Math.max(createdAt, toLong(input.get("updatedAt"), now));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("connectionKey", connectionKey);
+        out.put("userOpenid", userOpenid);
+        out.put("nickname", clampText(input.get("nickname"), MAX_BLACKLIST_NICKNAME));
+        out.put("reason", clampText(input.get("reason"), MAX_BLACKLIST_REASON));
+        out.put("active", toBoolean(input.get("active"), true));
+        out.put("source", clampText(input.get("source") == null ? defaultSource : input.get("source"), 20));
+        out.put("createdAt", createdAt);
+        out.put("updatedAt", updatedAt);
+        return out;
+    }
+
+    private static String normalizeBlacklistConnection(Object value) {
+        String key = clampText(value, 240);
+        if ("global".equals(key)) return key;
+        return key.matches("^(group|c2c|channel):[^\\s:]{3,200}$") ? key : "";
+    }
+
+    private static Map<String, Object> findBlacklistEntry(List<Map<String, Object>> entries,
+                                                          String connectionKey, String userOpenid) {
+        for (Map<String, Object> entry : entries) {
+            if (connectionKey.equals(String.valueOf(entry.get("connectionKey")))
+                    && userOpenid.equals(String.valueOf(entry.get("userOpenid")))) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    private static Map<String, Object> upsertBlacklistEntry(List<Map<String, Object>> entries,
+                                                             Map<String, Object> incoming, boolean force) {
+        if (incoming == null) return null;
+        String connectionKey = String.valueOf(incoming.get("connectionKey"));
+        String userOpenid = String.valueOf(incoming.get("userOpenid"));
+        Map<String, Object> existing = findBlacklistEntry(entries, connectionKey, userOpenid);
+        if (existing == null) {
+            entries.add(incoming);
+            return incoming;
+        }
+        long existingUpdated = toLong(existing.get("updatedAt"), 0L);
+        long incomingUpdated = toLong(incoming.get("updatedAt"), 0L);
+        if (!force && incomingUpdated <= existingUpdated) return existing;
+        incoming.put("createdAt", toLong(existing.get("createdAt"),
+                toLong(incoming.get("createdAt"), System.currentTimeMillis())));
+        if (force) incoming.put("updatedAt", Math.max(incomingUpdated, existingUpdated + 1));
+        for (int i = 0; i < entries.size(); i++) {
+            if (entries.get(i) == existing) {
+                entries.set(i, incoming);
+                break;
+            }
+        }
+        return incoming;
+    }
+
+    private static void trimBlacklist(List<Map<String, Object>> entries) {
+        while (entries.size() > MAX_BLACKLIST) {
+            int oldest = 0;
+            for (int i = 1; i < entries.size(); i++) {
+                if (toLong(entries.get(i).get("updatedAt"), 0L)
+                        < toLong(entries.get(oldest).get("updatedAt"), 0L)) {
+                    oldest = i;
+                }
+            }
+            entries.remove(oldest);
+        }
+    }
+
+    private static boolean toBoolean(Object value, boolean fallback) {
+        if (value == null) return fallback;
+        if (value instanceof Boolean bool) return bool;
+        String text = String.valueOf(value).trim();
+        return "1".equals(text) || "true".equalsIgnoreCase(text) || "yes".equalsIgnoreCase(text);
+    }
+
+    private static long toLong(Object value, long fallback) {
+        if (value instanceof Number number) return number.longValue();
+        try {
+            return Long.parseLong(String.valueOf(value).trim());
+        } catch (Exception ignored) {
+            return fallback;
+        }
     }
 
     private static String clampText(Object value, int max) {
